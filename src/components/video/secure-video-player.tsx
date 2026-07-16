@@ -10,6 +10,7 @@ import {
   Maximize2,
   Minimize2,
   Eye,
+  Ban,
 } from "lucide-react";
 import { useVideoProgress } from "@/hooks/use-video-progress";
 import { apiPost } from "@/lib/api-client";
@@ -28,14 +29,7 @@ interface TokenResponse {
     token: string;
     expiresIn: number;
     sessionId: string;
-    fileKey: string;
   };
-  error?: string;
-}
-
-interface FileResponse {
-  success: boolean;
-  url?: string;
   error?: string;
 }
 
@@ -48,22 +42,30 @@ export function SecureVideoPlayer({
 }: SecureVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const videoUrlRef = useRef<string | null>(null);
-  const tokenRef = useRef<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const lastTimeRef = useRef(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasPlayedOnce, setHasPlayedOnce] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const lastTimeRef = useRef(0);
 
   const progress = useVideoProgress({ userId, courseId: programId, lessonId });
 
   const loadVideo = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setHasLoaded(false);
+
+    // Cleanup previous blob URL
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
 
     try {
+      // Get token
       const tokenRes = await apiPost<TokenResponse["data"]>(
         "/api/stream/token",
         { programId, lessonId, kind: "video" }
@@ -72,15 +74,22 @@ export function SecureVideoPlayer({
         throw new Error(tokenRes.error ?? "Không tạo được session");
       }
 
-      tokenRef.current = tokenRes.data.token;
-
-      const fileRes = await fetch(`/api/stream/${tokenRes.data.token}/file`);
-      const fileJson = (await fileRes.json()) as FileResponse;
-      if (!fileJson.success || !fileJson.url) {
-        throw new Error(fileJson.error ?? "Không lấy được URL video");
+      // Fetch video blob through server (hides S3 URL)
+      const videoRes = await fetch(`/api/stream/${tokenRes.data.token}/file`);
+      if (!videoRes.ok) {
+        const errText = await videoRes.text();
+        throw new Error(`Lỗi tải video: ${errText}`);
       }
 
-      videoUrlRef.current = fileJson.url;
+      const blob = await videoRes.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrlRef.current = objectUrl;
+
+      if (videoRef.current) {
+        videoRef.current.src = objectUrl;
+      }
+
+      setHasLoaded(true);
       setLoading(false);
     } catch (e) {
       setError(
@@ -92,14 +101,13 @@ export function SecureVideoPlayer({
 
   useEffect(() => {
     void loadVideo();
-  }, [loadVideo]);
 
-  useEffect(() => {
-    if (!videoRef.current || !videoUrlRef.current) return;
-    if (videoRef.current.src !== videoUrlRef.current) {
-      videoRef.current.src = videoUrlRef.current;
-    }
-  }, [loading]);
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
+    };
+  }, [loadVideo]);
 
   const onTimeUpdate = useCallback(() => {
     const v = videoRef.current;
@@ -150,11 +158,22 @@ export function SecureVideoPlayer({
     }
   };
 
+  // Prevent right-click
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+  };
+
+  // Prevent video download via drag
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+  };
+
   return (
     <div className="space-y-2">
       <div
         ref={containerRef}
         className="relative aspect-video w-full overflow-hidden rounded-lg bg-black select-none fullscreen:aspect-auto fullscreen:h-screen fullscreen:w-screen fullscreen:rounded-none"
+        onContextMenu={handleContextMenu}
       >
         <video
           ref={videoRef}
@@ -162,33 +181,37 @@ export function SecureVideoPlayer({
           controlsList="nodownload noremoteplayback noplaybackrate"
           disablePictureInPicture
           playsInline
-          preload="metadata"
-          onContextMenu={(e) => e.preventDefault()}
+          preload="auto"
+          onContextMenu={handleContextMenu}
           onTimeUpdate={onTimeUpdate}
           onPlay={onPlay}
           onEnded={onEnded}
           onWaiting={() => setLoading(true)}
           onCanPlay={() => setLoading(false)}
+          onDragStart={handleDragStart}
           className="h-full w-full"
         />
 
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-            <Loader2 className="h-10 w-10 animate-spin text-white" />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-12 w-12 animate-spin text-white" />
+              <p className="text-white/80 text-sm">Đang tải video...</p>
+            </div>
           </div>
         )}
 
-        {!hasPlayedOnce && !loading && (
+        {!hasPlayedOnce && hasLoaded && !loading && (
           <button
             type="button"
             onClick={() => videoRef.current?.play()}
-            className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30 hover:bg-black/40 transition cursor-pointer"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/40 hover:bg-black/50 transition cursor-pointer z-20"
             aria-label="Phát video"
           >
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/70 ring-2 ring-white/80 backdrop-blur-sm">
-              <Play className="h-7 w-7 text-white fill-white" />
+            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-md ring-2 ring-white/60 transition hover:scale-110 hover:bg-white/30">
+              <Play className="h-9 w-9 text-white fill-white ml-1" />
             </span>
-            <span className="text-white text-sm font-medium drop-shadow">
+            <span className="text-white text-base font-medium drop-shadow-lg">
               Bấm để phát video
             </span>
           </button>
@@ -225,18 +248,36 @@ export function SecureVideoPlayer({
             <Maximize2 className="h-4 w-4" />
           )}
         </button>
+
+        {/* Anti-piracy watermark overlay */}
+        {hasLoaded && (
+          <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+            <div className="bg-black/50 backdrop-blur-sm px-4 py-2 rounded-lg">
+              <p className="text-white/70 text-xs flex items-center gap-2">
+                <Ban className="h-3 w-3" />
+                Không được phép tải video
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-xs">{error}</AlertDescription>
+          <button
+            onClick={() => void loadVideo()}
+            className="mt-2 text-xs underline"
+          >
+            Thử lại
+          </button>
         </Alert>
       )}
 
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3 w-3" />
-        Presigned URL · session token · Viettel IDC S3
+        Blob streaming · URL S3 được ẩn hoàn toàn · chống tải video
       </p>
     </div>
   );

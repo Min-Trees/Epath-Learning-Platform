@@ -1,23 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ShieldCheck, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api-client";
-
-/**
- * SecurePdfViewer - hiển thị PDF qua session token.
- *
- * Client gọi /api/stream/token?kind=pdf để lấy JWT, sau đó dùng
- * token đó để fetch PDF qua /api/stream/[token]/file. Server verify
- * token + quyền user → stream PDF từ R2 (private).
- *
- * Lưu ý: Token được đặt vào URL, không phải header Authorization, để
- * <iframe src="..."> có thể load trực tiếp. Browser sẽ không hiển thị
- * URL gốc R2. Người dùng có thể copy URL nhưng chỉ dùng được trong
- * 10 phút và bị ràng buộc user/lesson.
- */
 
 interface SecurePdfViewerProps {
   programId: string;
@@ -42,11 +29,20 @@ export function SecurePdfViewer({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [iframeLoading, setIframeLoading] = useState(false);
+  const objectUrlRef = useRef<string | null>(null);
 
   const loadPdf = async () => {
     setLoading(true);
     setError(null);
     setIframeLoading(false);
+
+    // Cleanup previous blob URL
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+      setPdfUrl(null);
+    }
+
     try {
       const json = await apiPost<TokenResponse["data"]>(
         "/api/stream/token",
@@ -55,7 +51,18 @@ export function SecurePdfViewer({
       if (!json.success || !json.data) {
         throw new Error(json.error ?? "Không tạo được session");
       }
-      setPdfUrl(`/api/stream/${json.data.token}/file`);
+
+      // Fetch PDF blob through server (hides S3 URL)
+      const pdfRes = await fetch(`/api/stream/${json.data.token}/file`);
+      if (!pdfRes.ok) {
+        const errText = await pdfRes.text();
+        throw new Error(`Lỗi tải PDF: ${errText}`);
+      }
+
+      const blob = await pdfRes.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrlRef.current = objectUrl;
+      setPdfUrl(objectUrl);
       setIframeLoading(true);
     } catch (e) {
       setError(`Không tải được PDF: ${e instanceof Error ? e.message : "unknown"}`);
@@ -65,9 +72,14 @@ export function SecurePdfViewer({
     }
   };
 
-  // Auto-load PDF when component mounts
   useEffect(() => {
-    loadPdf();
+    void loadPdf();
+
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -95,7 +107,7 @@ export function SecurePdfViewer({
                 variant="outline"
                 size="sm"
                 className="mt-2"
-                onClick={loadPdf}
+                onClick={() => void loadPdf()}
               >
                 Thử lại
               </Button>
@@ -116,7 +128,7 @@ export function SecurePdfViewer({
         )}
         {!pdfUrl && !error && !loading && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Button onClick={loadPdf}>Tải PDF</Button>
+            <Button onClick={() => void loadPdf()}>Tải PDF</Button>
           </div>
         )}
       </div>
@@ -124,7 +136,7 @@ export function SecurePdfViewer({
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <ShieldCheck className="h-3 w-3" />
-          PDF stream qua session token · không URL trực tiếp tới R2.
+          Blob streaming · URL S3 được ẩn hoàn toàn
         </p>
         {pdfUrl && (
           <Button

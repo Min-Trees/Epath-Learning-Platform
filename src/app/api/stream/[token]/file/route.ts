@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { verifyStreamSession } from "@/lib/stream-session";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +14,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     const { token } = await ctx.params;
     const session = verifyStreamSession(token);
     if (!session) {
-      return new Response("Invalid or expired token", { status: 401 });
+      return new NextResponse("Invalid or expired token", { status: 401 });
     }
 
     const client = new S3Client({
@@ -33,19 +32,46 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       Key: session.fk,
     });
 
-    const presignedUrl = await getSignedUrl(client, cmd, { expiresIn: 3600 });
+    const response = await client.send(cmd);
+    if (!response.Body) {
+      return new NextResponse("File not found", { status: 404 });
+    }
 
-    return NextResponse.json({
-      success: true,
-      url: presignedUrl,
-      kind: session.kind,
-      fileKey: session.fk,
+    const chunks: Uint8Array[] = [];
+    const contentLength = response.ContentLength;
+    
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+
+    const videoBuffer = Buffer.concat(chunks);
+
+    return new NextResponse(videoBuffer, {
+      headers: {
+        "Content-Type": getContentType(session.fk),
+        "Content-Length": String(videoBuffer.length),
+        "Content-Disposition": "inline",
+        "Cache-Control": "private, no-cache, no-store, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
+      },
     });
   } catch (e) {
     console.error("[stream/file] error:", e);
-    return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : "Internal error" },
+    return new NextResponse(
+      e instanceof Error ? e.message : "Internal error",
       { status: 500 }
     );
   }
+}
+
+function getContentType(fileKey: string): string {
+  const ext = fileKey.split(".").pop()?.toLowerCase() ?? "";
+  const types: Record<string, string> = {
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mov: "video/quicktime",
+    m4v: "video/x-m4v",
+    pdf: "application/pdf",
+  };
+  return types[ext] ?? "application/octet-stream";
 }
