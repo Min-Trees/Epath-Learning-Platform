@@ -1,23 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, ok, bad } from "@/lib/api-auth";
 import { signStreamSession } from "@/lib/stream-session";
-
-/**
- * POST /api/stream/token
- * Body: { lessonId, programId, kind?: "video" | "pdf" }
- *
- * Tạo session token ngắn hạn (10 phút) cho phép user xem lesson.
- * Server verify:
- *   - User đã đăng nhập
- *   - User được assign chương trình chứa lesson này (hoặc là admin)
- *   - Lesson có fileKey hợp lệ
- *
- * Trả về: { token, expiresIn, sessionId }
- *
- * Client dùng token để gọi /api/stream/[token]/...
- */
 
 interface RequestBody {
   lessonId?: string;
@@ -25,7 +9,7 @@ interface RequestBody {
   kind?: "video" | "pdf";
 }
 
-const TTL_SECONDS = 600; // 10 phút
+const TTL_SECONDS = 600;
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,7 +25,6 @@ export async function POST(req: NextRequest) {
       return bad("kind phải là 'video' hoặc 'pdf'");
     }
 
-    // Đọc lesson
     const lessonRef = adminDb
       .collection("programs")
       .doc(programId)
@@ -56,7 +39,6 @@ export async function POST(req: NextRequest) {
       return bad("Lesson chưa có file. Vui lòng upload trước.", 400);
     }
 
-    // Check quyền: admin hoặc user được gán program
     if (!me.isAdmin) {
       const assignmentSnap = await adminDb
         .collection("assignments")
@@ -69,7 +51,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const sessionId = randomUUID();
+    const sessionId = crypto.randomUUID();
     const token = signStreamSession(
       {
         uid: me.uid,
@@ -82,24 +64,11 @@ export async function POST(req: NextRequest) {
       TTL_SECONDS
     );
 
-    // Log session để tracking
-    await adminDb.collection("stream_sessions").doc(sessionId).set({
-      uid: me.uid,
-      email: me.email,
-      programId,
-      lessonId,
-      fileKey,
-      kind,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + TTL_SECONDS * 1000),
-      ip: req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "",
-      userAgent: req.headers.get("user-agent") ?? "",
-    });
-
     return ok({
       token,
       expiresIn: TTL_SECONDS,
       sessionId,
+      fileKey,
     });
   } catch (e) {
     console.error("[api/stream/token][POST] error:", e);

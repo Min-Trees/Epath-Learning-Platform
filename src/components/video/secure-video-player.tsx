@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Hls from "hls.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertCircle,
@@ -14,19 +13,6 @@ import {
 } from "lucide-react";
 import { useVideoProgress } from "@/hooks/use-video-progress";
 import { apiPost } from "@/lib/api-client";
-
-/**
- * SecureVideoPlayer - Player dùng HLS streaming qua session token.
- *
- * Flow:
- * 1. POST /api/stream/token → JWT token (10 phút)
- * 2. HLS.js load playlist: GET /api/stream/[token]/playlist.m3u8
- * 3. Mỗi segment: GET /api/stream/[token]/segment/[N].ts
- *    - Server FFmpeg transcode + watermark user
- *
- * Không URL trực tiếp tới R2 nào xuất hiện trong Network tab.
- * Mỗi segment có watermark "email · sid · segN" ở góc dưới phải.
- */
 
 interface SecureVideoPlayerProps {
   programId: string;
@@ -42,7 +28,14 @@ interface TokenResponse {
     token: string;
     expiresIn: number;
     sessionId: string;
+    fileKey: string;
   };
+  error?: string;
+}
+
+interface FileResponse {
+  success: boolean;
+  url?: string;
   error?: string;
 }
 
@@ -55,9 +48,8 @@ export function SecureVideoPlayer({
 }: SecureVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const videoUrlRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
-  const tokenExpiresAtRef = useRef<number>(0);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,136 +59,48 @@ export function SecureVideoPlayer({
 
   const progress = useVideoProgress({ userId, courseId: programId, lessonId });
 
-  /**
-   * Lấy session token từ server. Cache trong ref, refresh trước khi hết hạn 60s.
-   */
-  const getToken = useCallback(async (): Promise<string | null> => {
-    const now = Date.now();
-    if (tokenRef.current && tokenExpiresAtRef.current - now > 60_000) {
-      return tokenRef.current;
-    }
-    try {
-      const json = await apiPost<TokenResponse["data"]>(
-        "/api/stream/token",
-        { programId, lessonId, kind: "video" }
-      );
-      if (!json.success || !json.data) {
-        throw new Error(json.error ?? "Không tạo được session");
-      }
-      tokenRef.current = json.data.token;
-      tokenExpiresAtRef.current = now + json.data.expiresIn * 1000;
-      return json.data.token;
-    } catch (e) {
-      setError(
-        `Không tạo được session: ${e instanceof Error ? e.message : "unknown"}`
-      );
-      return null;
-    }
-  }, [programId, lessonId]);
-
-  /**
-   * Build playlist URL với token hiện tại. HLS.js sẽ fetch playlist này.
-   * Lưu ý: HLS.js fetch playlist không kèm header Authorization, nhưng URL
-   * đã chứa token → server vẫn xác thực được.
-   */
-  const buildPlaylistUrl = useCallback((token: string): string => {
-    return `/api/stream/${token}/playlist.m3u8`;
-  }, []);
-
-  /**
-   * Setup HLS player.
-   */
-  const setupPlayer = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video) return;
-
+  const loadVideo = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const token = await getToken();
-    if (!token) {
+    try {
+      const tokenRes = await apiPost<TokenResponse["data"]>(
+        "/api/stream/token",
+        { programId, lessonId, kind: "video" }
+      );
+      if (!tokenRes.success || !tokenRes.data) {
+        throw new Error(tokenRes.error ?? "Không tạo được session");
+      }
+
+      tokenRef.current = tokenRes.data.token;
+
+      const fileRes = await fetch(`/api/stream/${tokenRes.data.token}/file`);
+      const fileJson = (await fileRes.json()) as FileResponse;
+      if (!fileJson.success || !fileJson.url) {
+        throw new Error(fileJson.error ?? "Không lấy được URL video");
+      }
+
+      videoUrlRef.current = fileJson.url;
       setLoading(false);
-      return;
-    }
-
-    const playlistUrl = buildPlaylistUrl(token);
-
-    // Cleanup instance cũ
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        // Preload nhiều hơn để không bị dừng
-        maxBufferLength: 120,
-        maxMaxBufferLength: 180,
-        maxBufferSize: 200 * 1024 * 1024,
-        maxBufferHole: 1,
-        // Start level: load ngay level cao nhất
-        startLevel: -1,
-        capLevelToPlayerSize: false,
-        // Retry nhiều hơn
-        manifestLoadingMaxRetry: 5,
-        manifestLoadingRetryDelay: 1000,
-        levelLoadingMaxRetry: 5,
-        levelLoadingRetryDelay: 1000,
-        fragLoadingMaxRetry: 10,
-        fragLoadingRetryDelay: 2000,
-      });
-
-      hls.loadSource(playlistUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setLoading(false);
-      });
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              // Token có thể đã hết hạn → thử refresh
-              tokenRef.current = null;
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              setError(
-                `Lỗi phát video: ${data.type} - ${data.details ?? ""}`
-              );
-          }
-        }
-      });
-
-      hlsRef.current = hls;
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari native HLS
-      video.src = playlistUrl;
-      video.addEventListener("loadedmetadata", () => setLoading(false), {
-        once: true,
-      });
-    } else {
-      setError("Trình duyệt không hỗ trợ HLS playback");
+    } catch (e) {
+      setError(
+        `Không tải được video: ${e instanceof Error ? e.message : "unknown"}`
+      );
       setLoading(false);
     }
-  }, [getToken, buildPlaylistUrl]);
+  }, [programId, lessonId]);
 
   useEffect(() => {
-    void setupPlayer();
-    return () => {
-      hlsRef.current?.destroy();
-      hlsRef.current = null;
-    };
-  }, [setupPlayer]);
+    void loadVideo();
+  }, [loadVideo]);
 
-  /**
-   * Chống tua khi requireFullWatch: nếu currentTime nhảy vọt → reset.
-   */
+  useEffect(() => {
+    if (!videoRef.current || !videoUrlRef.current) return;
+    if (videoRef.current.src !== videoUrlRef.current) {
+      videoRef.current.src = videoUrlRef.current;
+    }
+  }, [loading]);
+
   const onTimeUpdate = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -226,7 +130,6 @@ export function SecureVideoPlayer({
     void progress.writeProgress(v.duration || lastTimeRef.current, v.duration || 0);
   }, [progress]);
 
-  // Fullscreen
   useEffect(() => {
     const onChange = () => {
       setIsFullscreen(document.fullscreenElement === containerRef.current);
@@ -264,6 +167,8 @@ export function SecureVideoPlayer({
           onTimeUpdate={onTimeUpdate}
           onPlay={onPlay}
           onEnded={onEnded}
+          onWaiting={() => setLoading(true)}
+          onCanPlay={() => setLoading(false)}
           className="h-full w-full"
         />
 
@@ -331,8 +236,7 @@ export function SecureVideoPlayer({
 
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3 w-3" />
-        HLS streaming · session token · watermark per-user · không URL trực
-        tiếp tới R2.
+        Presigned URL · session token · Viettel IDC S3
       </p>
     </div>
   );
