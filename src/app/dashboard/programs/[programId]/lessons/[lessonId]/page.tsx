@@ -2,14 +2,13 @@
 
 import { use, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Award,
   Loader2,
-  Video,
-  FileType,
   XCircle,
   RotateCcw,
 } from "lucide-react";
@@ -37,8 +36,23 @@ import type {
   PublicTest,
   TestSubmitResult,
 } from "@/types/training";
-import { SecureVideoPlayer } from "@/components/video/secure-video-player";
-import { SecurePdfViewer } from "@/components/video/secure-pdf-viewer";
+
+// Lazy load heavy video/pdf components
+const SecureVideoPlayer = dynamic(
+  () => import("@/components/video/secure-video-player").then((m) => m.SecureVideoPlayer),
+  {
+    loading: () => <Skeleton className="aspect-video w-full" />,
+    ssr: false,
+  }
+);
+
+const SecurePdfViewer = dynamic(
+  () => import("@/components/video/secure-pdf-viewer").then((m) => m.SecurePdfViewer),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+);
 
 export default function EmployeeLessonPage({
   params,

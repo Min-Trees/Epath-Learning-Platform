@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use, useCallback } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   Edit,
@@ -41,11 +42,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PageContainer } from "@/components/layout";
-import { RichTextEditor } from "@/components/rich-text-editor";
 import { useAuth } from "@/hooks/use-auth";
 import { programService, lessonService } from "@/services/training";
 import type { Program, Lesson, LessonContentType } from "@/types/training";
 import { formatDateTime } from "@/utils";
+
+// Lazy load RichTextEditor (TinyMCE is heavy ~500KB)
+const RichTextEditor = dynamic(
+  () => import("@/components/rich-text-editor").then((m) => m.RichTextEditor),
+  {
+    loading: () => <div className="h-64 w-full animate-pulse rounded-md bg-muted" />,
+    ssr: false,
+  }
+);
 
 const TYPE_ICONS: Record<
   LessonContentType,
