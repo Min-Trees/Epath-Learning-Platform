@@ -100,7 +100,7 @@ export default function AdminCoursesPage() {
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>
-            Lỗi: <code className="text-xs">{error}</code>
+            Lỗi: <code className="text-xs">{error instanceof Error ? error.message : String(error)}</code>
           </AlertDescription>
         </Alert>
       )}
