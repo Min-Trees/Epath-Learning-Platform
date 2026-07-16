@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     const token = signStreamSession(
       {
         uid: me.uid,
-        email: me.email,
+        email: me.email ?? "",
         lid: lessonId,
         fk: fileKey,
         kind,

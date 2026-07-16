@@ -214,7 +214,7 @@ function AdminReportsPageInner() {
               <CardContent>
                 <div className="space-y-2">
                   {summary.atRiskUsers.map((u) => {
-                    const fullUser = users[u.userId];
+                    const fullUser = userMap[u.userId];
                     return (
                       <Link
                         key={u.userId}

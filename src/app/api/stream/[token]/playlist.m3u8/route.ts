@@ -108,7 +108,6 @@ async function ensureSourceFile(
   if (!obj.Body) throw new Error("S3 trả về body rỗng");
 
   const chunks: Buffer[] = [];
-  // @ts-expect-error - Body là Node Readable trong Node runtime
   for await (const chunk of obj.Body as AsyncIterable<Uint8Array>) {
     chunks.push(Buffer.from(chunk));
   }

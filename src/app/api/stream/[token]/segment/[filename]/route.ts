@@ -71,7 +71,6 @@ async function ensureSourceFileCached(sid: string, fileKey: string): Promise<{ l
   if (!obj.Body) throw new Error("S3 trả về body rỗng");
 
   const chunks: Buffer[] = [];
-  // @ts-expect-error - Body là Node Readable trong Node runtime
   for await (const chunk of obj.Body as AsyncIterable<Uint8Array>) {
     chunks.push(Buffer.from(chunk));
   }
@@ -188,7 +187,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     // Thử lấy từ cache trước (vì watermark cố định)
     const cachedBuffer = getCachedSegment(session.sid, segIndex, startTime);
     if (cachedBuffer) {
-      return new Response(cachedBuffer, {
+      return new Response(new Uint8Array(cachedBuffer), {
         headers: {
           "Content-Type": "video/mp2t",
           "Cache-Control": "private, max-age=900",
@@ -211,7 +210,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     // Lưu vào cache
     setCachedSegment(session.sid, segIndex, startTime, tsBuffer);
 
-    return new Response(tsBuffer, {
+    return new Response(new Uint8Array(tsBuffer), {
       headers: {
         "Content-Type": "video/mp2t",
         "Cache-Control": "private, max-age=900",

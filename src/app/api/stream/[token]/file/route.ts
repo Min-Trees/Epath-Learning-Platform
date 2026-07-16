@@ -106,8 +106,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       start = parsed.start;
       end = parsed.end;
       // Đóng stream ban đầu (không cần body full)
-      // @ts-expect-error - Node runtime
-      obj.Body?.destroy?.();
+      (obj.Body as unknown as { destroy?: () => void })?.destroy?.();
 
       const rangeObj = await client.send(
         new GetObjectCommand({
@@ -116,7 +115,6 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
           Range: `bytes=${start}-${end}`,
         })
       );
-      // @ts-expect-error - Node runtime
       body = rangeObj.Body as Readable;
       if (rangeObj.ContentType) contentType = rangeObj.ContentType;
       status = 206;
@@ -131,7 +129,6 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       if (obj.ContentType) contentType = obj.ContentType;
       start = 0;
       end = totalSize > 0 ? totalSize - 1 : 0;
-      // @ts-expect-error - Node runtime
       body = obj.Body as Readable;
     }
 

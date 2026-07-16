@@ -17,8 +17,8 @@ export function usePrefetch() {
   return useCallback(
     (key: readonly unknown[]) => {
       const state = qc.getQueryState(key);
-      // Bỏ qua nếu đang fetch hoặc đã có data fresh (< 30s)
-      if (!state || (state.isFetching === false && state.dataUpdateCount === 0)) {
+      // Bỏ qua nếu đã có data fresh
+      if (!state || state.dataUpdateCount === 0) {
         qc.prefetchQuery({
           queryKey: key as unknown[],
           queryFn: () => Promise.reject(new Error("prefetch placeholder")),

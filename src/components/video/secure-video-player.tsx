@@ -65,7 +65,7 @@ export function SecureVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const lastTimeRef = useRef(0);
 
-  const progress = useVideoProgress({ userId, programId, lessonId });
+  const progress = useVideoProgress({ userId, courseId: programId, lessonId });
 
   /**
    * Lấy session token từ server. Cache trong ref, refresh trước khi hết hạn 60s.
