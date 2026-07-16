@@ -257,6 +257,7 @@ export default function AdminProgramDetailPage({
             duration: l.fileMeta.duration,
           }
         : null,
+      selectedFile: null,
       isUploading: false,
       uploadProgress: 0,
       uploadError: null,
