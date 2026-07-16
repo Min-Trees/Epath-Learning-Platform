@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/use-auth";
 import { useThemeStore } from "@/stores";
+import { useBlockDevTools } from "@/hooks/use-block-devtools";
 
 /**
  * React Query Devtools — load bằng next/dynamic với ssr:false.
@@ -92,6 +93,12 @@ export function Providers({ children }: { children: ReactNode }) {
       {showDevtools && (
         <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
       )}
+      <DevToolsBlocker />
     </QueryClientProvider>
   );
+}
+
+function DevToolsBlocker() {
+  useBlockDevTools();
+  return null;
 }
