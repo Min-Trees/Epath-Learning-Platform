@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// Firebase Storage không còn được sử dụng trong app.
+// Video giờ là URL trực tiếp (.mp4) được stream qua proxy server
+// tại `/api/video/[courseId]/[lessonId]`. Admin nhập URL trong lesson form,
+// không upload file lên Storage nữa.
+//
+// Rule dưới đây khóa hoàn toàn Storage để tránh data leak nếu còn file cũ.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

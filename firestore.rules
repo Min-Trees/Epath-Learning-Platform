@@ -1,0 +1,152 @@
+rules_version = '2';
+
+// Firestore Security Rules for EpathSystemTraining
+// Deploy: firebase deploy --only firestore:rules
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ───────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ─── Users ─────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      // User tạo doc của chính mình khi đăng ký
+      allow create: if isOwner(userId);
+      // User tự update các field cơ bản; admin được update tất cả
+      allow update: if isOwner(userId) || isAdmin();
+      // Chỉ admin mới được xóa user
+      allow delete: if isAdmin();
+
+      // Subcollections (progress, bookmarks, ...)
+      match /{sub=**} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // ─── Programs (chương trình training) ───────────────────
+    match /programs/{programId} {
+      // Ai cũng đọc được chương trình đã publish; admin đọc tất cả
+      allow read: if resource.data.status == 'published' || isAdmin();
+      // Chỉ admin tạo / sửa / xóa
+      allow create, update, delete: if isAdmin();
+
+      // Subcollection: lessons
+      match /lessons/{lessonId} {
+        // Cho phép mọi người đã đăng nhập đọc (sẽ check assignment ở API layer)
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+
+        // Subcollection: test (mỗi lesson 1 test)
+        match /test/{testId} {
+          allow read: if isSignedIn();
+          allow write: if isAdmin();
+        }
+      }
+    }
+
+    // ─── Assignments (gán chương trình cho employee) ──────
+    // Document id: `${userId}_${programId}`
+    match /assignments/{assignId} {
+      allow read: if isSignedIn() &&
+        (isAdmin() || resource.data.userId == request.auth.uid);
+      // Chỉ admin được tạo / sửa / xóa
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ─── Progress (tiến độ học) ────────────────────────────
+    // Doc id: `${userId}_${programId}`; subcollection: lessons
+    match /progress/{progId} {
+      allow read: if isSignedIn() &&
+        (isAdmin() || resource.data.userId == request.auth.uid);
+      // Employee tự ghi progress của mình; admin ghi tất cả
+      allow create, update: if isAdmin() ||
+        (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+
+      match /lessons/{lessonId} {
+        allow read, write: if isAdmin() ||
+          (isSignedIn() && get(/databases/$(database)/documents/progress/$(progId)).data.userId == request.auth.uid);
+      }
+    }
+
+    // ─── Courses (legacy - giữ cho tương thích) ────────────
+    match /courses/{courseId} {
+      allow read: if resource.data.status == 'published'
+                  || isAdmin()
+                  || (isSignedIn() && resource.data.instructorId == request.auth.uid);
+      allow create, update, delete: if isAdmin();
+
+      match /lessons/{lessonId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /documents/{docId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /quizzes/{quizId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    // ─── Quizzes (top-level legacy) ─────────────────────────
+    match /quizzes/{quizId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ─── Certificates ──────────────────────────────────────
+    match /certificates/{certId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // ─── Progress ──────────────────────────────────────────
+    match /progress/{progressId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow write: if isOwner(request.resource.data.userId) || isAdmin();
+    }
+
+    // ─── Quiz attempts ─────────────────────────────────────
+    match /quizAttempts/{attemptId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isSignedIn()
+                    && isOwner(request.resource.data.userId);
+      allow update, delete: if isAdmin();
+    }
+
+    // ─── Notifications ─────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ─── AI knowledge (chatbot) ────────────────────────────
+    match /ai_knowledge/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ─── Deny tất cả các collection khác theo mặc định ───
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

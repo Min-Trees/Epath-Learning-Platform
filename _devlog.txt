@@ -1,0 +1,20 @@
+﻿
+> epath-system-training@0.1.0 dev
+> node ./node_modules/next/dist/bin/next dev
+
+node.exe :  ΓÜá Port 3000 is in use by process 21304, using available port 3002 instead.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( ΓÜá Port 3000 ...t 3002 instead.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Γû▓ Next.js 15.5.20
+   - Local:        http://localhost:3002
+   - Network:      http://192.168.1.119:3002
+   - Environments: .env.local
+   - Experiments (use with caution):
+     ┬╖ serverActions
+
+ Γ£ô Starting...
+ Γ£ô Ready in 1809ms

@@ -1,0 +1,13 @@
+﻿
+> epath-system-training@0.1.0 dev
+> node ./node_modules/next/dist/bin/next dev
+
+   Γû▓ Next.js 15.5.20
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.119:3000
+   - Environments: .env.local
+   - Experiments (use with caution):
+     ┬╖ serverActions
+
+ Γ£ô Starting...
+ Γ£ô Ready in 8.6s

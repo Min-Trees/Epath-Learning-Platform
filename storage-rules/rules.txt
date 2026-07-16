@@ -1,0 +1,76 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return request.auth != null;
+    }
+    
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isVideo() {
+      return request.resource.contentType.matches('video/.*');
+    }
+    
+    function isDocument() {
+      return request.resource.contentType.matches('application/pdf|application/.*document|application/.*word|text/.*');
+    }
+    
+    function isUnderSizeLimit(size) {
+      return request.resource.size < size;
+    }
+    
+    // Videos - require authentication
+    match /videos/{courseId}/{lessonId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isVideo() && isUnderSizeLimit(500 * 1024 * 1024);
+    }
+    
+    // Documents
+    match /documents/{courseId}/{lessonId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isDocument() && isUnderSizeLimit(50 * 1024 * 1024);
+    }
+    
+    // Course images (thumbnails, banners)
+    match /images/courses/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isImage() && isUnderSizeLimit(5 * 1024 * 1024);
+    }
+    
+    // Thumbnails
+    match /images/thumbnails/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isImage() && isUnderSizeLimit(2 * 1024 * 1024);
+    }
+    
+    // Banners
+    match /images/banners/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isImage() && isUnderSizeLimit(5 * 1024 * 1024);
+    }
+    
+    // Certificates
+    match /certificates/{userId}/{courseId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // User avatars
+    match /avatars/{userId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if request.auth.uid == userId && isImage() && isUnderSizeLimit(2 * 1024 * 1024);
+    }
+  }
+}

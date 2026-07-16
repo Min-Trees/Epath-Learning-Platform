@@ -1,0 +1,119 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isHR() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'hr';
+    }
+    
+    function isTrainer() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'trainer';
+    }
+    
+    function isInstructor(courseId) {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/courses/$(courseId)).data.instructorId == request.auth.uid;
+    }
+    
+    function isPublishedCourse() {
+      return resource.data.status == 'published';
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) || isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Courses collection
+    match /courses/{courseId} {
+      allow read: if isAuthenticated() && isPublishedCourse() || 
+                       isAdmin() || isHR() || isTrainer() || isInstructor(courseId);
+      allow create: if isAdmin() || isHR() || isTrainer();
+      allow update: if isAdmin() || isHR() || isInstructor(courseId);
+      allow delete: if isAdmin() || isHR();
+    }
+    
+    // Lessons collection
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isHR() || isTrainer();
+      allow update: if isAdmin() || isHR() || isTrainer();
+      allow delete: if isAdmin() || isHR();
+    }
+    
+    // Documents collection
+    match /documents/{documentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isHR() || isTrainer();
+      allow update: if isAdmin() || isHR() || isTrainer();
+      allow delete: if isAdmin() || isHR();
+    }
+    
+    // Quizzes collection
+    match /quizzes/{quizId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isHR() || isTrainer();
+      allow update: if isAdmin() || isHR() || isTrainer();
+      allow delete: if isAdmin() || isHR();
+    }
+    
+    // Quiz Attempts collection
+    match /quizAttempts/{attemptId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isHR();
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Progress collection
+    match /progress/{progressId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isHR();
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+    
+    // Certificates collection
+    match /certificates/{certificateId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isHR();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isHR();
+      allow create: if isAuthenticated();
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+    
+    // AI Knowledge collection
+    match /ai_knowledge/{docId} {
+      allow read: if isAdmin() || isHR() || isTrainer();
+      allow create: if isAdmin() || isHR();
+      allow update: if isAdmin() || isHR();
+      allow delete: if isAdmin();
+    }
+  }
+}
