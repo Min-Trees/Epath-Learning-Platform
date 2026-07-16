@@ -54,6 +54,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
           <Link
             href="/dashboard"
             className="flex items-center hover:text-foreground"
+            prefetch={false}
           >
             <Home className="h-4 w-4" />
           </Link>
@@ -65,6 +66,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
               <Link
                 href={item.href}
                 className="hover:text-foreground"
+                prefetch={false}
               >
                 {item.label}
               </Link>

@@ -126,7 +126,7 @@ export function Header() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/notifications" className="w-full cursor-pointer text-primary">
+              <Link href="/dashboard/notifications" className="w-full cursor-pointer text-primary" prefetch={false}>
                 Xem tất cả thông báo
               </Link>
             </DropdownMenuItem>
@@ -167,13 +167,13 @@ export function Header() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/profile">
+              <Link href="/dashboard/profile" prefetch={false}>
                 <User className="mr-2 h-4 w-4" />
                 Hồ sơ
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/settings">
+              <Link href="/dashboard/settings" prefetch={false}>
                 <Settings className="mr-2 h-4 w-4" />
                 Cài đặt
               </Link>
