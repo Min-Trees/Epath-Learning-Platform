@@ -192,6 +192,7 @@ export default function EmployeeProgramDetailPage({
             <Link
               key={l.id}
               href={`/dashboard/programs/${programId}/lessons/${l.id}`}
+              prefetch={false}
               className={`flex items-center gap-3 rounded-md border p-3 transition-colors hover:bg-muted/50 ${
                 isDone ? "border-green-500/30" : ""
               }`}
