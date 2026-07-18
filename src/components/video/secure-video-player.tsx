@@ -15,6 +15,7 @@ import {
 import { useVideoProgress } from "@/hooks/use-video-progress";
 import { useBlockDevTools } from "@/hooks/use-block-devtools";
 import { usePrefetchVideo } from "@/hooks/use-prefetch-video";
+import type { PrefetchHandle } from "@/hooks/use-prefetch-video";
 import { apiPost } from "@/lib/api-client";
 
 interface SecureVideoPlayerProps {
@@ -45,7 +46,7 @@ export function SecureVideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTimeRef = useRef(0);
-  const prefetchHandleRef = useRef<Awaited<ReturnType<ReturnType<typeof usePrefetchVideo>["start"]>> | null>(null);
+  const prefetchHandleRef = useRef<PrefetchHandle | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
