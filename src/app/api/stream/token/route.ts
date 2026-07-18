@@ -9,7 +9,7 @@ interface RequestBody {
   kind?: "video" | "pdf";
 }
 
-const TTL_SECONDS = 600;
+const TTL_SECONDS = 120;
 
 export async function POST(req: NextRequest) {
   try {
