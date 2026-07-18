@@ -77,7 +77,7 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      title: "Khóa học đã ghi danh",
+      title: "Chương trình đã ghi danh",
       value: stats.enrolledCourses,
       icon: BookOpen,
       color: "text-blue-600",
@@ -167,7 +167,7 @@ export default function DashboardPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Tiếp tục học</CardTitle>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/dashboard/courses">
+                <Link href="/dashboard/programs">
                   Xem tất cả
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
@@ -190,12 +190,12 @@ export default function DashboardPage() {
               ) : enrolledCourses.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <BookOpen className="h-12 w-12 text-muted-foreground/50" />
-                  <h3 className="mt-4 font-semibold">Chưa có khóa học nào</h3>
+                  <h3 className="mt-4 font-semibold">Chưa có chương trình nào</h3>
                   <p className="mt-2 text-sm text-muted-foreground">
                     Bắt đầu học ngay hôm nay!
                   </p>
                   <Button className="mt-4" asChild>
-                    <Link href="/dashboard/courses">Khám phá khóa học</Link>
+                    <Link href="/dashboard/programs">Khám phá chương trình</Link>
                   </Button>
                 </div>
               ) : (
@@ -234,7 +234,7 @@ export default function DashboardPage() {
                           <Progress value={0} className="h-2 flex-1" />
                           <span className="text-sm font-medium">0%</span>
                           <Button size="sm" asChild>
-                            <Link href={`/dashboard/courses/${course.id}`}>
+                            <Link href={`/dashboard/programs/${course.id}`}>
                               <Play className="mr-1 h-4 w-4" />
                               Tiếp tục
                             </Link>
@@ -253,7 +253,7 @@ export default function DashboardPage() {
         <div>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Khóa học nổi bật</CardTitle>
+              <CardTitle>Chương trình nổi bật</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -266,15 +266,15 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : featuredCourses.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Chưa có khóa học nào.
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  Chưa có chương trình nào.
                 </p>
               ) : (
                 <div className="space-y-4">
                   {featuredCourses.map((course) => (
                     <Link
                       key={course.id}
-                      href={`/dashboard/courses/${course.id}`}
+                      href={`/dashboard/programs/${course.id}`}
                       className="block rounded-lg border p-3 transition-colors hover:bg-muted/50"
                     >
                       <div className="flex items-start justify-between">
@@ -311,9 +311,9 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               <Button variant="outline" className="w-full justify-start" asChild>
-                <Link href="/dashboard/courses">
+                <Link href="/dashboard/programs">
                   <BookOpen className="mr-2 h-4 w-4" />
-                  Khám phá khóa học
+                  Khám phá chương trình
                 </Link>
               </Button>
             </CardContent>
