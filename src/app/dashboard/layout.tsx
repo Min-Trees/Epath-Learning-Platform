@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Sidebar, Header } from "@/components/layout";
 import { Loader2, Menu } from "lucide-react";
-import { cn } from "@/utils";
 import { useUIStore } from "@/stores";
 import { Button } from "@/components/ui/button";
 
@@ -16,7 +15,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
-  const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore();
+  const { sidebarOpen, setSidebarOpen } = useUIStore();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -63,17 +62,9 @@ export default function DashboardLayout({
       )}
 
       {/* Main content area */}
-      <div
-        className={cn(
-          "flex flex-1 flex-col transition-all duration-300",
-          // Desktop: respect collapsed state
-          "lg:ml-0",
-          // Mobile: always full-width, content is overlaid by sidebar
-          sidebarCollapsed ? "ml-0" : "ml-0"
-        )}
-      >
+      <div className="flex flex-1 flex-col flex-1">
         {/* Mobile header with hamburger */}
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background px-4 lg:hidden">
+        <header className="sticky top-0 z-50 flex h-14 items-center gap-3 border-b bg-background px-4 lg:hidden">
           <Button
             variant="ghost"
             size="icon"
@@ -85,7 +76,7 @@ export default function DashboardLayout({
           <span className="font-semibold text-foreground">Epath Training</span>
         </header>
 
-        {/* Desktop header (hidden on mobile — Header component handles it on lg+) */}
+        {/* Desktop header */}
         <div className="hidden lg:block">
           <Header />
         </div>
