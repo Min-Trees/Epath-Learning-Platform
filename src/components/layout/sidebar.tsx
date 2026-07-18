@@ -96,6 +96,9 @@ export function Sidebar() {
     (item) => !item.roles || item.roles.includes(user?.role as UserRole)
   );
 
+  const isActiveDesktop = (href: string) =>
+    pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+
   const NavLink = ({
     item,
   }: {
@@ -105,12 +108,11 @@ export function Sidebar() {
       pathname === item.href ||
       (item.href !== "/dashboard" && pathname.startsWith(item.href));
 
-    const content = (
+    return (
       <Link
         href={item.href}
         prefetch={false}
         onClick={() => {
-          // Close sidebar on mobile after navigation
           if (window.innerWidth < 1024) {
             setSidebarOpen(false);
           }
@@ -119,27 +121,13 @@ export function Sidebar() {
           "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
           isActive
             ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          sidebarCollapsed && "justify-center px-2"
+            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         )}
       >
         <item.icon className="h-4 w-4 shrink-0" />
-        {!sidebarCollapsed && <span>{item.title}</span>}
+        <span>{item.title}</span>
       </Link>
     );
-
-    if (sidebarCollapsed) {
-      return (
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>{content}</TooltipTrigger>
-          <TooltipContent side="right" className="flex items-center gap-2">
-            {item.title}
-          </TooltipContent>
-        </Tooltip>
-      );
-    }
-
-    return content;
   };
 
   return (
@@ -173,14 +161,30 @@ export function Sidebar() {
         {/* Navigation */}
         <nav className="flex-1 space-y-1 overflow-y-auto p-2 no-scrollbar">
           {filteredNavItems.map((item) => (
-            <NavLink key={item.href} item={item} />
+            <Link
+              key={item.href}
+              href={item.href}
+              prefetch={false}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                isActiveDesktop(item.href)
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                sidebarCollapsed && "justify-center px-2"
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!sidebarCollapsed && (
+                <span className="truncate">{item.title}</span>
+              )}
+            </Link>
           ))}
 
           {filteredAdminItems.length > 0 && (
             <>
               <div className="my-4 px-3">
                 {!sidebarCollapsed && (
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">
+                  <span className="truncate text-xs font-semibold uppercase text-muted-foreground">
                     Quản trị
                   </span>
                 )}
@@ -189,7 +193,23 @@ export function Sidebar() {
                 )}
               </div>
               {filteredAdminItems.map((item) => (
-                <NavLink key={item.href} item={item} />
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch={false}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    isActiveDesktop(item.href)
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    sidebarCollapsed && "justify-center px-2"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  {!sidebarCollapsed && (
+                    <span className="truncate">{item.title}</span>
+                  )}
+                </Link>
               ))}
             </>
           )}
