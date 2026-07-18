@@ -18,4 +18,10 @@ echo ========================================
 echo   DANG KHOI DONG DEV SERVER...
 echo ========================================
 echo.
+
+rem Tắt Next.js DevTools (Segment Explorer) — bản 15.5.x có bug
+rem "Could not find ... segment-explorer-node.js" trong React Client Manifest
+rem gây lỗi runtime TypeError "Cannot read properties of undefined (reading 'call')"
+set NEXT_DEVTOOLS=false
+set NEXT_TELEMETRY_DISABLED=1
 call npm run dev

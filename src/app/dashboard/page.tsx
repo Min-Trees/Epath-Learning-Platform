@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   BookOpen,
-  Award,
   Clock,
   TrendingUp,
   Play,
@@ -26,15 +25,13 @@ import {
   query,
   where,
   limit,
-  orderBy,
 } from "firebase/firestore";
-import type { Course, Certificate } from "@/types";
+import type { Course } from "@/types";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const [enrolledCourses, setEnrolledCourses] = useState<Course[]>([]);
   const [featuredCourses, setFeaturedCourses] = useState<Course[]>([]);
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,19 +58,6 @@ export default function DashboardPage() {
         setEnrolledCourses(
           allCourses.filter((c) => enrolledIds.includes(c.id))
         );
-
-        const certsSnap = await getDocs(
-          query(
-            collection(db, "certificates"),
-            where("userId", "==", user.id)
-          )
-        );
-        setCertificates(
-          certsSnap.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<Certificate, "id">),
-          }))
-        );
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -85,19 +69,7 @@ export default function DashboardPage() {
 
   const stats = {
     enrolledCourses: enrolledCourses.length,
-    completedCourses: certificates.length,
-    inProgressCourses: Math.max(
-      enrolledCourses.length - certificates.length,
-      0
-    ),
-    certificatesEarned: certificates.length,
-    averageScore:
-      certificates.length > 0
-        ? Math.round(
-            certificates.reduce((s, c) => s + (c.score ?? 0), 0) /
-              certificates.length
-          )
-        : 0,
+    inProgressCourses: enrolledCourses.length,
     totalLearningHours: Math.round(
       enrolledCourses.reduce((s, c) => s + (c.duration ?? 0), 0) / 3600
     ),
@@ -112,13 +84,6 @@ export default function DashboardPage() {
       bgColor: "bg-blue-100 dark:bg-blue-900/20",
     },
     {
-      title: "Hoàn thành",
-      value: stats.completedCourses,
-      icon: Award,
-      color: "text-green-600",
-      bgColor: "bg-green-100 dark:bg-green-900/20",
-    },
-    {
       title: "Đang học",
       value: stats.inProgressCourses,
       icon: Clock,
@@ -126,8 +91,8 @@ export default function DashboardPage() {
       bgColor: "bg-orange-100 dark:bg-orange-900/20",
     },
     {
-      title: "Điểm trung bình",
-      value: `${stats.averageScore}%`,
+      title: "Tổng giờ học",
+      value: `${stats.totalLearningHours}h`,
       icon: TrendingUp,
       color: "text-purple-600",
       bgColor: "bg-purple-100 dark:bg-purple-900/20",
@@ -349,12 +314,6 @@ export default function DashboardPage() {
                 <Link href="/dashboard/courses">
                   <BookOpen className="mr-2 h-4 w-4" />
                   Khám phá khóa học
-                </Link>
-              </Button>
-              <Button variant="outline" className="w-full justify-start" asChild>
-                <Link href="/dashboard/certificates">
-                  <Award className="mr-2 h-4 w-4" />
-                  Xem chứng chỉ
                 </Link>
               </Button>
             </CardContent>

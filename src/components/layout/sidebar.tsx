@@ -6,12 +6,9 @@ import {
   LayoutDashboard,
   BookOpen,
   GraduationCap,
-  Award,
   Users,
   Settings,
-  FileText,
   BarChart3,
-  HelpCircle,
   ChevronLeft,
   ChevronRight,
   UserPlus,
@@ -43,11 +40,6 @@ const navItems: NavItem[] = [
     title: "Chương trình của tôi",
     href: "/dashboard/programs",
     icon: BookOpen,
-  },
-  {
-    title: "Chứng chỉ",
-    href: "/certificates",
-    icon: Award,
   },
   {
     title: "Hồ sơ",
@@ -86,24 +78,6 @@ const adminItems: NavItem[] = [
     href: "/admin/reports",
     icon: BarChart3,
     roles: ["admin", "hr"],
-  },
-  {
-    title: "Bài học (legacy)",
-    href: "/admin/lessons",
-    icon: FileText,
-    roles: ["admin", "hr", "trainer"],
-  },
-  {
-    title: "Quiz (legacy)",
-    href: "/admin/quizzes",
-    icon: GraduationCap,
-    roles: ["admin", "hr", "trainer"],
-  },
-  {
-    title: "Khóa học (legacy)",
-    href: "/admin/courses",
-    icon: BookOpen,
-    roles: ["admin", "hr", "trainer"],
   },
 ];
 

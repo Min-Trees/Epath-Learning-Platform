@@ -130,7 +130,7 @@ export default function ProfilePage() {
           <CardTitle>Thống kê tài khoản</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-lg border p-4 text-center">
               <p className="text-2xl font-bold">{user.enrolledCourses?.length || 0}</p>
               <p className="text-sm text-muted-foreground">Khóa học đã ghi danh</p>
@@ -138,10 +138,6 @@ export default function ProfilePage() {
             <div className="rounded-lg border p-4 text-center">
               <p className="text-2xl font-bold">{user.completedCourses?.length || 0}</p>
               <p className="text-sm text-muted-foreground">Khóa học hoàn thành</p>
-            </div>
-            <div className="rounded-lg border p-4 text-center">
-              <p className="text-2xl font-bold">0</p>
-              <p className="text-sm text-muted-foreground">Chứng chỉ</p>
             </div>
             <div className="rounded-lg border p-4 text-center">
               <Calendar className="mx-auto h-6 w-6 text-muted-foreground mb-2" />

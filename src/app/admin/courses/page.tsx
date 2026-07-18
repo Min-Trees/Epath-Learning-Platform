@@ -7,7 +7,6 @@ import {
   ShieldCheck,
   BookOpen,
   ChevronRight,
-  Database,
   Loader2,
 } from "lucide-react";
 import {
@@ -66,9 +65,9 @@ export default function AdminCoursesPage() {
           Tải lại
         </Button>
         <Button asChild>
-          <Link href="/admin/seed-youtube-demo">
-            <Database className="mr-2 h-4 w-4" />
-            Seed khóa học demo YouTube
+          <Link href="/admin/courses/new">
+            <Plus className="mr-2 h-4 w-4" />
+            Tạo khóa học mới
           </Link>
         </Button>
       </div>

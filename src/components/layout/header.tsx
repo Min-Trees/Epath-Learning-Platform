@@ -118,12 +118,6 @@ export function Header() {
                 Khóa học &quot;TypeScript Basics&quot; sắp hết hạn
               </span>
             </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <span className="font-medium">Chứng chỉ mới</span>
-              <span className="text-xs text-muted-foreground">
-                Bạn đã nhận được chứng chỉ hoàn thành khóa học
-              </span>
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/dashboard/notifications" className="w-full cursor-pointer text-primary" prefetch={false}>

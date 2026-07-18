@@ -1,27 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Users,
   BookOpen,
-  Award,
   TrendingUp,
+  Award,
   BarChart3,
   ArrowRight,
-  FileText,
-  FileQuestion,
-  Trash2,
   UserPlus,
-  Send,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageContainer } from "@/components/layout";
-import { useAuth } from "@/hooks/use-auth";
-import { myProgramsService, programService } from "@/services/training";
+import { apiGet } from "@/lib/api-client";
 
 interface AdminStats {
   totalUsers: number;
@@ -33,42 +28,49 @@ interface AdminStats {
   newUsersThisMonth: number;
 }
 
+const EMPTY_STATS: AdminStats = {
+  totalUsers: 0,
+  totalCourses: 0,
+  totalEnrollments: 0,
+  totalCompletions: 0,
+  averageCompletionRate: 0,
+  activeUsersThisMonth: 0,
+  newUsersThisMonth: 0,
+};
+
+const formatNumber = (n: number) => n.toLocaleString("vi-VN");
+
 export default function AdminDashboardPage() {
-  const { user } = useAuth();
-  const [stats, setStats] = useState<AdminStats>({
-    totalUsers: 0,
-    totalCourses: 0,
-    totalEnrollments: 0,
-    totalCompletions: 0,
-    averageCompletionRate: 0,
-    activeUsersThisMonth: 0,
-    newUsersThisMonth: 0,
-  });
+  const [stats, setStats] = useState<AdminStats>(EMPTY_STATS);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchStats = async () => {
       setIsLoading(true);
+      setError(null);
       try {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        setStats({
-          totalUsers: 245,
-          totalCourses: 28,
-          totalEnrollments: 1250,
-          totalCompletions: 890,
-          averageCompletionRate: 71,
-          activeUsersThisMonth: 198,
-          newUsersThisMonth: 15,
-        });
-      } catch (error) {
-        console.error("Error fetching stats:", error);
+        const res = await apiGet<AdminStats>("/api/admin/stats");
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setStats(res.data);
+        } else {
+          setError(res.error ?? "Không thể tải thống kê");
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Error fetching stats:", err);
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     fetchStats();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const statCards = [
@@ -123,11 +125,11 @@ export default function AdminDashboardPage() {
                 {isLoading ? (
                   <Skeleton className="mt-1 h-8 w-16" />
                 ) : (
-                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-2xl font-bold">{formatNumber(stat.value)}</p>
                 )}
               </div>
               {stat.href && (
-                <Link href={stat.href}>
+                <Link href={stat.href} prefetch={false}>
                   <ArrowRight className="h-5 w-5 text-muted-foreground transition-transform group-hover:translate-x-1" />
                 </Link>
               )}
@@ -135,6 +137,12 @@ export default function AdminDashboardPage() {
           </Card>
         ))}
       </div>
+
+      {error && !isLoading && (
+        <div className="mb-6 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          Không thể tải thống kê: {error}
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Quick Actions */}
@@ -173,12 +181,6 @@ export default function AdminDashboardPage() {
                 Quản lý người dùng
               </Link>
             </Button>
-            <Button variant="outline" className="justify-start" asChild>
-              <Link href="/admin/cleanup">
-                <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                <span className="text-destructive">Dọn dẹp dữ liệu</span>
-              </Link>
-            </Button>
           </CardContent>
         </Card>
 
@@ -195,7 +197,9 @@ export default function AdminDashboardPage() {
               {isLoading ? (
                 <Skeleton className="h-6 w-12" />
               ) : (
-                <span className="font-semibold">{stats.activeUsersThisMonth}</span>
+                <span className="font-semibold">
+                  {formatNumber(stats.activeUsersThisMonth)}
+                </span>
               )}
             </div>
             <div className="flex items-center justify-between">
@@ -205,7 +209,9 @@ export default function AdminDashboardPage() {
               {isLoading ? (
                 <Skeleton className="h-6 w-12" />
               ) : (
-                <Badge variant="success">+{stats.newUsersThisMonth}</Badge>
+                <Badge variant="success">
+                  +{formatNumber(stats.newUsersThisMonth)}
+                </Badge>
               )}
             </div>
             <div className="flex items-center justify-between">
@@ -215,7 +221,9 @@ export default function AdminDashboardPage() {
               {isLoading ? (
                 <Skeleton className="h-6 w-12" />
               ) : (
-                <span className="font-semibold">{stats.averageCompletionRate}%</span>
+                <span className="font-semibold">
+                  {stats.averageCompletionRate}%
+                </span>
               )}
             </div>
           </CardContent>
