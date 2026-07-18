@@ -1,0 +1,48 @@
+flowchart TD
+    A[Quản lý truy cập hệ thống] --> B[Đăng nhập với quyền quản lý]
+    B --> C{Vai trò của bạn?}
+    C -->|Admin hệ thống| D[Quản lý toàn bộ]
+    C -->|Trưởng phòng / Leader| E[Xem báo cáo và theo dõi]
+
+    D --> D1[Quản lý người dùng]
+    D --> D2[Quản lý chương trình]
+    D --> D3[Quản lý bài học]
+    D --> D4[Quản lý bài kiểm tra]
+
+    D1 --> F1[Tạo / sửa / xóa tài khoản]
+    D1 --> F2[Phân quyền cho từng người]
+    D1 --> F3[Khoá hoặc mở khoá tài khoản]
+
+    D2 --> F4[Tạo / sửa / xóa chương trình]
+    D2 --> F5[Đăng tải hoặc ẩn chương trình]
+
+    D3 --> F6[Kiểm duyệt nội dung video / tài liệu]
+    D3 --> F7[Sắp xếp thứ tự bài học]
+
+    D4 --> F8[Tạo và chỉnh sửa bài kiểm tra]
+    D4 --> F9[Đặt thời gian và điểm đạt]
+
+    E --> G1[Xem tiến độ học tập của nhân viên]
+    E --> G2[Xem báo cáo tổng hợp theo chương trình]
+    E --> G3[Xem báo cáo theo cá nhân]
+    E --> G4[Xuất báo cáo để chia sẻ]
+
+    style A fill:#dbeafe,stroke:#1e40af,color:#000
+    style B fill:#fef3c7,stroke:#b45309,color:#000
+    style C fill:#fce7f3,stroke:#9d174d,color:#000
+    style D fill:#e0e7ff,stroke:#3730a3,color:#000
+    style E fill:#fed7aa,stroke:#9a3412,color:#000
+    style D1 fill:#dcfce7,stroke:#15803d,color:#000
+    style D2 fill:#dcfce7,stroke:#15803d,color:#000
+    style D3 fill:#dcfce7,stroke:#15803d,color:#000
+    style D4 fill:#dcfce7,stroke:#15803d,color:#000
+    style E fill:#fed7aa,stroke:#9a3412,color:#000
+    style F1 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F2 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F3 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F4 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F5 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F6 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F7 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F8 fill:#fce7f3,stroke:#9d174d,color:#000
+    style F9 fill:#fce7f3,stroke:#9d174d,color:#000

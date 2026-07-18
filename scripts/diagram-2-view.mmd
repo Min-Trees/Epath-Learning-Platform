@@ -1,0 +1,45 @@
+flowchart TD
+    A[Học viên truy cập hệ thống] --> B[Đăng nhập]
+    B --> C{Đăng nhập thành công?}
+    C -->|Không| B
+    C -->|Có| D[Vào trang cá nhân]
+
+    D --> E[Xem danh sách chương trình được giao]
+    E --> F[Chọn chương trình muốn học]
+    F --> G[Xem danh sách bài học trong chương trình]
+
+    G --> H{Chọn bài học}
+    H -->|Video| I[Xem video bài giảng]
+    H -->|Tài liệu PDF| J[Tải và đọc tài liệu]
+    H -->|Bài kiểm tra| K[Làm bài kiểm tra]
+
+    I --> L{Hoàn thành bài học?}
+    J --> L
+    K --> M{Kết quả bài kiểm tra}
+    M -->|Đạt| L
+    M -->|Chưa đạt| K
+
+    L -->|Có| N[Hệ thống tự động ghi nhận tiến độ]
+    L -->|Chưa| I
+
+    N --> O{Còn bài học khác?}
+    O -->|Có| H
+    O -->|Không| P[Hoàn thành chương trình]
+    P --> Q[Nhận chứng nhận hoàn thành]
+
+    style A fill:#dbeafe,stroke:#1e40af,color:#000
+    style B fill:#fef3c7,stroke:#b45309,color:#000
+    style D fill:#dcfce7,stroke:#15803d,color:#000
+    style E fill:#e0e7ff,stroke:#3730a3,color:#000
+    style F fill:#e0e7ff,stroke:#3730a3,color:#000
+    style G fill:#e0e7ff,stroke:#3730a3,color:#000
+    style H fill:#fce7f3,stroke:#9d174d,color:#000
+    style I fill:#fce7f3,stroke:#9d174d,color:#000
+    style J fill:#fce7f3,stroke:#9d174d,color:#000
+    style K fill:#fce7f3,stroke:#9d174d,color:#000
+    style L fill:#fce7f3,stroke:#9d174d,color:#000
+    style M fill:#fce7f3,stroke:#9d174d,color:#000
+    style N fill:#dcfce7,stroke:#15803d,color:#000
+    style O fill:#fce7f3,stroke:#9d174d,color:#000
+    style P fill:#fed7aa,stroke:#9a3412,color:#000
+    style Q fill:#86efac,stroke:#166534,color:#000,stroke-width:3px

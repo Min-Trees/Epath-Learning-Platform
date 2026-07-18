@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -12,6 +12,7 @@ import {
   User,
   Settings,
   ChevronDown,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,15 @@ export function Header() {
   const { user, logout } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus search input when opened on mobile
+  useEffect(() => {
+    if (searchOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [searchOpen]);
 
   const handleLogout = async () => {
     try {
@@ -50,6 +60,8 @@ export function Header() {
     e.preventDefault();
     if (searchQuery.trim()) {
       router.push(`/dashboard/courses?search=${encodeURIComponent(searchQuery)}`);
+      setSearchOpen(false);
+      setSearchQuery("");
     }
   };
 
@@ -58,14 +70,10 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 w-full items-center gap-4 border-b bg-background px-4 lg:px-6">
-      {/* Spacer to push content to right */}
-      <div className="flex-1" />
-
-      {/* Actions - Right side */}
-      <div className="flex items-center gap-2">
-        {/* Search */}
-        <form onSubmit={handleSearch} className="hidden sm:block">
+    <header className="sticky top-0 z-20 flex h-14 w-full items-center gap-3 border-b bg-background px-4 lg:gap-4 lg:px-6">
+      {/* Search — Desktop: always visible; Mobile: toggleable */}
+      <div className="hidden lg:block">
+        <form onSubmit={handleSearch}>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -77,17 +85,60 @@ export function Header() {
             />
           </div>
         </form>
+      </div>
+
+      {/* Mobile search toggle */}
+      <div className="flex flex-1 items-center lg:hidden">
+        <form onSubmit={handleSearch} className="flex-1">
+          {searchOpen ? (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                ref={searchInputRef}
+                type="search"
+                placeholder="Tìm kiếm..."
+                className="w-full pl-9 pr-8"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchOpen(false);
+                  setSearchQuery("");
+                }}
+                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                aria-label="Đóng tìm kiếm"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Mở tìm kiếm"
+              className="ml-auto"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          )}
+        </form>
+      </div>
+
+      {/* Actions — Right side */}
+      <div className="flex items-center gap-1 sm:gap-2">
         {/* Theme Toggle */}
         <Button
           variant="ghost"
           size="icon"
           onClick={toggleTheme}
           className="relative"
+          aria-label="Chuyển giao diện sáng/tối"
         >
           {theme === "dark" ? (
             <Moon className="h-4 w-4" />
-          ) : theme === "light" ? (
-            <Sun className="h-4 w-4" />
           ) : (
             <Sun className="h-4 w-4" />
           )}
@@ -96,14 +147,14 @@ export function Header() {
         {/* Notifications */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative">
+            <Button variant="ghost" size="icon" className="relative" aria-label="Thông báo">
               <Bell className="h-4 w-4" />
-              <Badge className="absolute -right-1 -top-1 h-4 w-4 rounded-full p-0 text-[10px]">
+              <Badge className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full p-0 text-[9px] font-medium">
                 3
               </Badge>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
+          <DropdownMenuContent align="end" className="w-80 md:w-96">
             <DropdownMenuLabel>Thông báo</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
@@ -139,7 +190,7 @@ export function Header() {
               </Avatar>
               <div className="hidden flex-col items-start text-left md:flex">
                 <span className="text-sm font-medium">{user?.displayName}</span>
-                <span className="text-xs capitalize text-muted-foreground">
+                <span className="hidden text-xs capitalize text-muted-foreground lg:block">
                   {user?.role === "admin"
                     ? "Quản trị"
                     : user?.role === "hr"
@@ -149,7 +200,7 @@ export function Header() {
                         : "Nhân viên"}
                 </span>
               </div>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <ChevronDown className="hidden h-4 w-4 text-muted-foreground lg:block" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">

@@ -1,0 +1,40 @@
+flowchart TD
+    A[Admin truy cập hệ thống] --> B[Đăng nhập]
+    B --> C{Đăng nhập thành công?}
+    C -->|Không| B
+    C -->|Có| D[Vào khu vực quản trị]
+
+    D --> E[Tạo chương trình đào tạo]
+    E --> F[Tạo khóa học trong chương trình]
+    F --> G[Thêm bài học vào khóa học]
+    G --> H{Chọn loại tài liệu}
+    H -->|Video| I[Tải video lên hệ thống]
+    H -->|Tài liệu PDF| J[Tải tệp PDF lên hệ thống]
+    H -->|Bài kiểm tra| K[Soạn câu hỏi và đáp án]
+
+    I --> L[Xác nhận tải lên thành công]
+    J --> L
+    K --> L
+
+    L --> M{Còn bài học khác?}
+    M -->|Có| G
+    M -->|Không| N[Giao chương trình cho học viên]
+
+    N --> O[Chọn học viên được giao]
+    O --> P[Hoàn tất quy trình tạo và giao tài liệu]
+
+    style A fill:#dbeafe,stroke:#1e40af,color:#000
+    style B fill:#fef3c7,stroke:#b45309,color:#000
+    style D fill:#dcfce7,stroke:#15803d,color:#000
+    style E fill:#e0e7ff,stroke:#3730a3,color:#000
+    style F fill:#e0e7ff,stroke:#3730a3,color:#000
+    style G fill:#e0e7ff,stroke:#3730a3,color:#000
+    style H fill:#fce7f3,stroke:#9d174d,color:#000
+    style I fill:#fce7f3,stroke:#9d174d,color:#000
+    style J fill:#fce7f3,stroke:#9d174d,color:#000
+    style K fill:#fce7f3,stroke:#9d174d,color:#000
+    style L fill:#dcfce7,stroke:#15803d,color:#000
+    style M fill:#fce7f3,stroke:#9d174d,color:#000
+    style N fill:#fed7aa,stroke:#9a3412,color:#000
+    style O fill:#fed7aa,stroke:#9a3412,color:#000
+    style P fill:#86efac,stroke:#166534,color:#000,stroke-width:3px
