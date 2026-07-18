@@ -13,6 +13,8 @@ import {
   Ban,
 } from "lucide-react";
 import { useVideoProgress } from "@/hooks/use-video-progress";
+import { useBlockDevTools } from "@/hooks/use-block-devtools";
+import { usePrefetchVideo } from "@/hooks/use-prefetch-video";
 import { apiPost } from "@/lib/api-client";
 
 interface SecureVideoPlayerProps {
@@ -42,8 +44,8 @@ export function SecureVideoPlayer({
 }: SecureVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const objectUrlRef = useRef<string | null>(null);
   const lastTimeRef = useRef(0);
+  const prefetchHandleRef = useRef<Awaited<ReturnType<ReturnType<typeof usePrefetchVideo>["start"]>> | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -52,20 +54,40 @@ export function SecureVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const progress = useVideoProgress({ userId, courseId: programId, lessonId });
+  // startFn ổn định identity (useCallback []). Không wrap trong object
+  // để tránh tạo ref mới mỗi render.
+  const startFn = usePrefetchVideo();
+
+  // Chặn DevTools + view source. Khi phát hiện DevTools mở → pause video + phủ overlay.
+  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  useBlockDevTools(true);
+  useEffect(() => {
+    const onOpen = () => {
+      setDevtoolsOpen(true);
+      videoRef.current?.pause();
+    };
+    const onClose = () => setDevtoolsOpen(false);
+    window.addEventListener("app:devtools-opened", onOpen);
+    window.addEventListener("app:devtools-closed", onClose);
+    return () => {
+      window.removeEventListener("app:devtools-opened", onOpen);
+      window.removeEventListener("app:devtools-closed", onClose);
+    };
+  }, []);
 
   const loadVideo = useCallback(async () => {
     setLoading(true);
     setError(null);
     setHasLoaded(false);
 
-    // Cleanup previous blob URL
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
+    // Reset video element nếu cần
+    if (videoRef.current?.src.startsWith("blob:")) {
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
     }
 
     try {
-      // Get token
+      // Lấy stream session token (TTL 120s, đã ký bằng STREAM_SESSION_SECRET)
       const tokenRes = await apiPost<TokenResponse["data"]>(
         "/api/stream/token",
         { programId, lessonId, kind: "video" }
@@ -74,40 +96,45 @@ export function SecureVideoPlayer({
         throw new Error(tokenRes.error ?? "Không tạo được session");
       }
 
-      // Fetch video blob through server (hides S3 URL)
-      const videoRes = await fetch(`/api/stream/${tokenRes.data.token}/file`);
-      if (!videoRes.ok) {
-        const errText = await videoRes.text();
-        throw new Error(`Lỗi tải video: ${errText}`);
-      }
+      const streamUrl = `/api/stream/${tokenRes.data.token}/file`;
 
-      const blob = await videoRes.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      objectUrlRef.current = objectUrl;
+      // Gán URL trực tiếp cho <video>: browser tự lo HTTP Range streaming + buffer.
+      // Đồng thời warm HTTP cache bằng cách fetch parallel các range sau,
+      // để khi user tua đến giữa/cuối → buffer đã sẵn sàng.
+      const handle = await startFn(streamUrl);
 
       if (videoRef.current) {
-        videoRef.current.src = objectUrl;
+        videoRef.current.src = handle.url;
+        prefetchHandleRef.current = handle;
       }
 
       setHasLoaded(true);
       setLoading(false);
     } catch (e) {
+      console.error("[player] loadVideo ERROR", e);
       setError(
         `Không tải được video: ${e instanceof Error ? e.message : "unknown"}`
       );
       setLoading(false);
     }
-  }, [programId, lessonId]);
+  }, [programId, lessonId, startFn]);
 
-  useEffect(() => {
-    void loadVideo();
+// Load video đúng 1 lần khi component mount, hoặc khi programId/lessonId đổi.
+// Dùng ref để tránh loadVideo thay đổi identity gây re-run effect.
+const loadVideoRef = useRef(loadVideo);
+loadVideoRef.current = loadVideo;
 
-    return () => {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
-    };
-  }, [loadVideo]);
+useEffect(() => {
+  void loadVideoRef.current();
+
+  return () => {
+    // Cleanup chỉ chạy khi unmount hoặc deps thay đổi.
+    // Lưu ý: KHÔNG reset video.src ở đây nếu chưa unmount — sẽ abort play() đang chạy.
+    prefetchHandleRef.current?.cleanup();
+    prefetchHandleRef.current = null;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [programId, lessonId]);
 
   const onTimeUpdate = useCallback(() => {
     const v = videoRef.current;
@@ -260,6 +287,21 @@ export function SecureVideoPlayer({
             </div>
           </div>
         )}
+
+        {/* Che video khi DevTools mở — buộc đóng DevTools để xem tiếp */}
+        {devtoolsOpen && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/95 backdrop-blur-md cursor-default">
+            <div className="flex flex-col items-center gap-3 px-6 py-5 rounded-lg bg-black/80 ring-1 ring-white/10">
+              <Ban className="h-10 w-10 text-red-400" />
+              <p className="text-white text-sm font-medium">
+                Đã phát hiện DevTools đang mở
+              </p>
+              <p className="text-white/70 text-xs text-center max-w-xs">
+                Vui lòng đóng cửa sổ Inspect/Console để tiếp tục xem video.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -277,7 +319,7 @@ export function SecureVideoPlayer({
 
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="h-3 w-3" />
-        Blob streaming · URL S3 được ẩn hoàn toàn · chống tải video
+        HTTP Range streaming · tải song song 4 đoạn · URL S3 ẩn · token 120s · chống DevTools
       </p>
     </div>
   );
