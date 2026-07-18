@@ -285,11 +285,11 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={toggleSidebar}
+            onClick={() => setSidebarOpen(false)}
             className="w-full"
           >
             <ChevronLeft className="h-4 w-4" />
-            <span>Thu gọn</span>
+            <span>Đóng</span>
           </Button>
         </div>
       </aside>
