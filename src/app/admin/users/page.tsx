@@ -114,7 +114,7 @@ export default function AdminUsersPage() {
   >({
     mutationFn: async ({ target, role }) => {
       await import("firebase/firestore").then(({ updateDoc }) =>
-        updateDoc(doc(db, target.id), {
+        updateDoc(doc(db, "users", target.id), {
           role,
           updatedAt: serverTimestamp(),
         })
@@ -128,7 +128,7 @@ export default function AdminUsersPage() {
     mutationFn: async ({ target }) => {
       const newActive = !target.isActive;
       const { updateDoc } = await import("firebase/firestore");
-      await updateDoc(doc(db, target.id), {
+      await updateDoc(doc(db, "users", target.id), {
         isActive: newActive,
         updatedAt: serverTimestamp(),
       });
@@ -140,7 +140,7 @@ export default function AdminUsersPage() {
   const deleteUser = useDocMutation<{ target: User }, void>({
     mutationFn: async ({ target }) => {
       const { deleteDoc } = await import("firebase/firestore");
-      await deleteDoc(doc(db, target.id));
+      await deleteDoc(doc(db, "users", target.id));
     },
     invalidate: ["users"],
   });
