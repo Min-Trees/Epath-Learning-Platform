@@ -27,10 +27,16 @@ export async function POST(req: NextRequest) {
       return bad("Thiếu fileName/mimeType/programId/lessonId");
     }
     // Validate mimeType theo contentType dự kiến
-    if (mimeType.startsWith("video/") || mimeType === "application/pdf") {
+    if (
+      mimeType.startsWith("video/") ||
+      mimeType === "application/pdf" ||
+      mimeType.startsWith(
+        "application/vnd.openxmlformats-officedocument.presentationml"
+      )
+    ) {
       // ok
     } else {
-      return bad("Chỉ hỗ trợ video/* hoặc application/pdf");
+      return bad("Chỉ hỗ trợ video/*, application/pdf hoặc PPTX");
     }
 
     // Validate size: chỉ yêu cầu size > 0, không giới hạn trên.
