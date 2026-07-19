@@ -130,8 +130,8 @@ export function useVideoProgress({
             lastUpdatedAt: serverTimestamp(),
             ...(completed ? { completedAt: serverTimestamp() } : {}),
           }, { merge: true });
-        } catch (e) {
-          console.warn("Failed to write video progress:", e);
+        } catch {
+          // ignore
         }
       }, 2000);
     },

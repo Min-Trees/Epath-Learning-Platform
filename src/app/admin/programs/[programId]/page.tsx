@@ -439,10 +439,7 @@ export default function AdminProgramDetailPage({
       setError(`File phải có MIME type ${expectedPrefix}*`);
       return;
     }
-    if (file.size > 200 * 1024 * 1024) {
-      setError("File vượt quá 200MB");
-      return;
-    }
+    // Không giới hạn kích thước file.
 
     setLessonForm((f) =>
       f ? { ...f, isUploading: true, uploadProgress: 0, uploadError: null, selectedFile: file } : f

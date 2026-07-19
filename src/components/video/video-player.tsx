@@ -189,8 +189,8 @@ function FullscreenWrapper({ children }: { children: React.ReactNode }) {
       } else {
         await wrapperRef.current.requestFullscreen();
       }
-    } catch (e) {
-      console.warn("Fullscreen failed:", e);
+    } catch {
+      // ignore
     }
   };
 

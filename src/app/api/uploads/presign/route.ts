@@ -33,6 +33,11 @@ export async function POST(req: NextRequest) {
       return bad("Chỉ hỗ trợ video/* hoặc application/pdf");
     }
 
+    // Validate size: chỉ yêu cầu size > 0, không giới hạn trên.
+    if (typeof body.size !== "number" || body.size <= 0) {
+      return bad("Thiếu hoặc sai kích thước file (size)");
+    }
+
     // Kiểm tra lesson tồn tại (chỉ bắt buộc khi update - với lesson mới, ta cho
     // presign trước rồi lesson sẽ được tạo khi user bấm "Lưu lesson")
     if (lessonId !== "new") {

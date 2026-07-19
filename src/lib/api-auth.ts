@@ -74,8 +74,7 @@ export async function getAuthUser(
     };
     setCachedUser(decoded.uid, user);
     return user;
-  } catch (e) {
-    console.warn("[api-auth] verifyIdToken failed:", e);
+  } catch {
     return null;
   }
 }

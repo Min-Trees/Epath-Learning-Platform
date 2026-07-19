@@ -181,8 +181,8 @@ useEffect(() => {
       } else {
         await containerRef.current?.requestFullscreen();
       }
-    } catch (e) {
-      console.warn("Fullscreen failed:", e);
+    } catch {
+      // ignore
     }
   };
 

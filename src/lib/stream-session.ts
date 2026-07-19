@@ -1,11 +1,6 @@
 import jwt from "jsonwebtoken";
 
 const SECRET = process.env.STREAM_SESSION_SECRET || "";
-if (!SECRET && process.env.NODE_ENV === "production") {
-  // Don't throw in dev so the file can be imported without crashing;
-  // calls will fail with a clear error.
-  console.warn("[stream-session] STREAM_SESSION_SECRET is empty");
-}
 
 export interface StreamSessionPayload {
   /** user uid */

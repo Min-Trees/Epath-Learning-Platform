@@ -80,7 +80,6 @@ export function SecurePdfViewer({
       // Render PDF thành HTML bằng pdfjs-dist (Mozilla pdf.js).
       // Worker bundle lấy qua CDN để tránh vấn đề bundling với Next.js.
       const pdfjsLib = await import("pdfjs-dist");
-      // @ts-expect-error - workerSrc assignment is supported at runtime
       pdfjsLib.GlobalWorkerOptions.workerSrc =
         "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/" +
         pdfjsLib.version +
@@ -100,12 +99,17 @@ export function SecurePdfViewer({
         if (!context) continue;
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        await page.render({ canvasContext: context, viewport }).promise;
+        await page.render({ canvas, canvasContext: context, viewport }).promise;
 
         const dataUrl = canvas.toDataURL("image/png");
         const textContent = await page.getTextContent();
         const textItems = textContent.items
-          .map((item: { str?: string }) => item.str ?? "")
+          .map((item: { str?: string } | unknown) => {
+            if (item && typeof item === "object" && "str" in item) {
+              return (item as { str?: string }).str ?? "";
+            }
+            return "";
+          })
           .join(" ");
 
         rendered.push(`

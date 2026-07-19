@@ -74,10 +74,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Firestore rule từ chối read/create — fallback về thông tin từ
           // Firebase Auth để app không bị block. User sẽ là employee mặc định
           // và nếu là admin thì cần fix rules.
-          console.warn(
-            "[use-auth] Không đọc được users/{uid}, dùng fallback từ Auth:",
-            err
-          );
           setUser({
             id: firebaseUser.uid,
             email: firebaseUser.email || "",
@@ -129,7 +125,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(newUser);
       }
     } catch (err) {
-      console.warn("[use-auth] login fallback:", err);
       // Fallback nếu Firestore rule chặn
       setUser({
         id: credential.user.uid,
