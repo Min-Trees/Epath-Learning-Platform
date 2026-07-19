@@ -13,6 +13,7 @@ import {
   FileType,
   Play,
   Lock,
+  Presentation,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,12 +42,14 @@ const TYPE_ICONS: Record<
   text: FileText,
   video: Video,
   pdf: FileType,
+  ppt: Presentation,
 };
 
 const TYPE_LABELS: Record<LessonContentType, string> = {
   text: "Văn bản",
   video: "Video",
   pdf: "PDF",
+  ppt: "PPT (Slide)",
 };
 
 export default function EmployeeProgramDetailPage({

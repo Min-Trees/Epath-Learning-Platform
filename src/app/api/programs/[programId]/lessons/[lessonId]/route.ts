@@ -75,7 +75,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
     }
     if (typeof body.order === "number") update.order = body.order;
     if (body.contentType) {
-      if (!["text", "video", "pdf"].includes(body.contentType)) {
+      if (!["text", "video", "pdf", "ppt"].includes(body.contentType)) {
         return bad("contentType không hợp lệ");
       }
       update.contentType = body.contentType;

@@ -56,6 +56,14 @@ const SecurePdfViewer = dynamic(
   }
 );
 
+const SecurePptViewer = dynamic(
+  () => import("@/components/video/secure-ppt-viewer").then((m) => m.SecurePptViewer),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+);
+
 export default function EmployeeLessonPage({
   params,
 }: {
@@ -341,6 +349,13 @@ export default function EmployeeLessonPage({
               title={lesson.title}
               userId={undefined}
               requireFullWatch={false}
+            />
+          ) : lesson.contentType === "ppt" ? (
+            <SecurePptViewer
+              programId={programId}
+              lessonId={lessonId}
+              title={lesson.title}
+              fileName={lesson.fileMeta?.fileName}
             />
           ) : (
             <SecurePdfViewer

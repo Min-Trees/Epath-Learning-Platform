@@ -41,7 +41,7 @@ export const lessonService = {
     data: {
       title: string;
       order?: number;
-      contentType: "text" | "video" | "pdf";
+      contentType: "text" | "video" | "pdf" | "ppt";
       textContent?: string;
     }
   ) => apiPost<{ lessonId: string }>(`/api/programs/${programId}/lessons`, data),
@@ -51,7 +51,7 @@ export const lessonService = {
     data: Partial<{
       title: string;
       order: number;
-      contentType: "text" | "video" | "pdf";
+      contentType: "text" | "video" | "pdf" | "ppt";
       textContent: string | null;
       fileKey: string | null;
       fileMeta: {

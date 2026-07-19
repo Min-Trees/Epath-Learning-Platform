@@ -13,7 +13,7 @@ export interface Program {
 }
 
 // ─── Lesson (Bài học) ────────────────────────────────────────
-export type LessonContentType = "text" | "video" | "pdf";
+export type LessonContentType = "text" | "video" | "pdf" | "ppt";
 
 export interface LessonFileMeta {
   fileName: string;
