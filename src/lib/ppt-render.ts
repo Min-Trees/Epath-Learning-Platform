@@ -105,7 +105,7 @@ async function renderSlideHtml(args: {
     if (!embedMatch) continue;
     const target = rels.get(embedMatch[1]);
     if (!target) continue;
-    const mediaPath = normalizeMediaPath("ppt/slides/" + slideXml === "" ? "" : "", target);
+    const mediaPath = normalizeMediaPath("ppt/slides/", target);
     const buf = await zip.file(mediaPath)?.async("nodebuffer");
     if (!buf) continue;
     const mime = guessImageMime(mediaPath);
@@ -152,9 +152,7 @@ async function renderSlideHtml(args: {
         1
       )}px;width:${w.toFixed(1)}px;height:${h.toFixed(
         1
-      )}px;font-size:${fontPx}px;${isBold ? "font-weight:700;" : ""}overflow:hidden;color:#111;">${escapeHtml(
-        text
-      )}</div>`
+      )}px;font-size:${fontPx}px;${isBold ? "font-weight:700;" : ""}overflow:hidden;color:#111;line-height:1.25;white-space:normal;word-wrap:break-word;">${text}</div>`
     );
   }
 
@@ -164,7 +162,7 @@ async function renderSlideHtml(args: {
 
   return `<section class="ppt-slide" data-slide="${slideNumber}" style="position:relative;width:${stageW.toFixed(
     1
-  )}px;height:${stageH.toFixed(1)}px;margin:0 auto 16px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.1);overflow:hidden;">${shapes.join(
+  )}px;height:${stageH.toFixed(1)}px;margin:0 auto 16px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.1);overflow:hidden;"><style>.ppt-slide p{margin:0;}</style>${shapes.join(
     ""
   )}<div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:2px 8px;border-radius:4px;">${slideNumber}</div></section>`;
 }
@@ -188,14 +186,30 @@ function extractTextFromTxBody(txBody: string): string {
   let m: RegExpExecArray | null;
   while ((m = pRe.exec(txBody)) !== null) {
     const runs: string[] = [];
-    const rRe = /<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g;
+    const rRe = /<a:(?:t|br)\b[^>]*>([\s\S]*?)<\/a:(?:t|br)>/g;
     let rm: RegExpExecArray | null;
     while ((rm = rRe.exec(m[0])) !== null) {
-      runs.push(rm[1]);
+      const inner = rm[1];
+      // a:br là line-break trong cùng paragraph — render thành newline token.
+      if (rm[0].startsWith("<a:br")) {
+        runs.push("\n");
+      } else if (inner) {
+        runs.push(inner);
+      }
     }
-    paragraphs.push(runs.join(""));
+    const joined = runs.join("");
+    paragraphs.push(joined.length ? joined : "");
   }
-  return paragraphs.map((p) => (p.length ? p : "&nbsp;")).join("<br/>");
+  // Render paragraph breaks dưới dạng block-level (<p>); line break trong
+  // paragraph là <br/>. Trả về HTML đã-an-toàn (escape trước, rồi chèn <br/>
+  // và <p> là literal HTML an toàn vì ta kiểm soát token này).
+  return paragraphs
+    .map((p) =>
+      p.length === 0
+        ? "<p>&nbsp;</p>"
+        : `<p>${escapeHtml(p).replace(/\n/g, "<br/>")}</p>`
+    )
+    .join("");
 }
 
 function guessImageMime(path: string): string {
