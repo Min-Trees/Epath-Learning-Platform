@@ -70,7 +70,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 w-full items-center gap-3 border-b bg-background px-4 lg:gap-4 lg:px-6">
+    <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between gap-3 border-b bg-background px-4 lg:gap-4 lg:px-6">
       {/* Search — Desktop: always visible; Mobile: toggleable */}
       <div className="hidden lg:block">
         <form onSubmit={handleSearch}>
