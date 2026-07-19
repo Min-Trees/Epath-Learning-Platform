@@ -81,8 +81,8 @@ export default function EmployeeProgramDetailPage({
         return;
       }
       setProgram(data.program);
-      setLessons(
-        (data.lessons ?? []).map((l) => ({
+      const sortedLessons = ([...(data.lessons ?? [])] as Lesson[])
+        .map((l) => ({
           ...l,
           createdAt: new Date(
             (l as { createdAt?: { toDate?: () => Date } | Date })
@@ -92,7 +92,8 @@ export default function EmployeeProgramDetailPage({
                   ?.toDate?.() ?? new Date())
           ),
         }))
-      );
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      setLessons(sortedLessons);
       if (progressRes.success) {
         setLessonProgress(
           ((progressRes.data as { lessons: LessonProgress[] }).lessons) ?? []
@@ -183,53 +184,80 @@ export default function EmployeeProgramDetailPage({
       </Card>
 
       <div className="grid gap-2">
-        {lessons.map((l, idx) => {
-          const Icon = TYPE_ICONS[l.contentType];
-          const lp = progressMap.get(l.id);
-          const isDone = lp?.lessonStatus === "completed";
-          const isInProgress = lp?.lessonStatus === "in_progress";
-          return (
-            <Link
-              key={l.id}
-              href={`/dashboard/programs/${programId}/lessons/${l.id}`}
-              prefetch={false}
-              className={`flex items-center gap-3 rounded-md border p-3 transition-colors hover:bg-muted/50 ${
-                isDone ? "border-green-500/30" : ""
-              }`}
-            >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                {isDone ? (
-                  <CheckCircle2 className="h-6 w-6 text-green-600" />
-                ) : isInProgress ? (
-                  <Circle className="h-6 w-6 text-orange-500" />
-                ) : (
-                  <Circle className="h-6 w-6 text-muted-foreground" />
+        {(() => {
+          let previousCompleted = true;
+          return lessons.map((l, idx) => {
+            const Icon = TYPE_ICONS[l.contentType];
+            const lp = progressMap.get(l.id);
+            const isDone = lp?.lessonStatus === "completed";
+            const isInProgress = lp?.lessonStatus === "in_progress";
+            const locked = !previousCompleted;
+            previousCompleted = isDone;
+            const content = (
+              <div
+                className={`flex items-center gap-3 rounded-md border p-3 transition-colors ${
+                  locked
+                    ? "cursor-not-allowed border-dashed bg-muted/30 opacity-60"
+                    : isDone
+                      ? "border-green-500/30 hover:bg-muted/50"
+                      : "hover:bg-muted/50"
+                }`}
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                  {locked ? (
+                    <Lock className="h-5 w-5 text-muted-foreground" />
+                  ) : isDone ? (
+                    <CheckCircle2 className="h-6 w-6 text-green-600" />
+                  ) : isInProgress ? (
+                    <Circle className="h-6 w-6 text-orange-500" />
+                  ) : (
+                    <Circle className="h-6 w-6 text-muted-foreground" />
+                  )}
+                </div>
+                <Badge variant="outline">#{l.order}</Badge>
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium">{l.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {locked
+                      ? "Hoàn thành bài trước để mở khóa"
+                      : `${TYPE_LABELS[l.contentType]}${
+                          l.hasTest ? " · có bài test" : ""
+                        }`}
+                  </div>
+                </div>
+                {l.hasTest && !locked && (
+                  <Award className="h-4 w-4 text-muted-foreground" />
+                )}
+                {lp?.testResult && !locked && (
+                  <Badge
+                    variant={lp.testResult.passed ? "success" : "destructive"}
+                  >
+                    {lp.testResult.score}%
+                  </Badge>
                 )}
               </div>
-              <Badge variant="outline">#{l.order}</Badge>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <Icon className="h-4 w-4" />
-              </div>
-              <div className="flex-1">
-                <div className="font-medium">{l.title}</div>
-                <div className="text-xs text-muted-foreground">
-                  {TYPE_LABELS[l.contentType]}
-                  {l.hasTest && " · có bài test"}
+            );
+            if (locked) {
+              return (
+                <div key={l.id} aria-disabled>
+                  {content}
                 </div>
-              </div>
-              {l.hasTest && (
-                <Award className="h-4 w-4 text-muted-foreground" />
-              )}
-              {lp?.testResult && (
-                <Badge
-                  variant={lp.testResult.passed ? "success" : "destructive"}
-                >
-                  {lp.testResult.score}%
-                </Badge>
-              )}
-            </Link>
-          );
-        })}
+              );
+            }
+            return (
+              <Link
+                key={l.id}
+                href={`/dashboard/programs/${programId}/lessons/${l.id}`}
+                prefetch={false}
+              >
+                {content}
+              </Link>
+            );
+          });
+        })()}
         {lessons.length === 0 && (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">

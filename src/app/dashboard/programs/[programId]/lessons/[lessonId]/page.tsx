@@ -11,6 +11,7 @@ import {
   Loader2,
   XCircle,
   RotateCcw,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ import {
 import { PageContainer } from "@/components/layout";
 import {
   lessonService,
+  programService,
   progressService,
   testService,
 } from "@/services/training";
@@ -64,6 +66,7 @@ export default function EmployeeLessonPage({
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
 
   // Test
   const [test, setTest] = useState<PublicTest | null>(null);
@@ -100,11 +103,33 @@ export default function EmployeeLessonPage({
       }
       // Check progress
       const pRes = await progressService.get(programId);
-      if (pRes.success) {
-        const lp = ((pRes.data as { lessons: { id: string; lessonStatus: string }[] })
-          .lessons) ?? [];
-        const cur = lp.find((x) => x.id === lessonId);
-        if (cur?.lessonStatus === "completed") setIsCompleted(true);
+      const lp: { id: string; lessonStatus: string }[] =
+        pRes.success
+          ? ((pRes.data as { lessons: { id: string; lessonStatus: string }[] })
+              .lessons) ?? []
+          : [];
+      const cur = lp.find((x) => x.id === lessonId);
+      if (cur?.lessonStatus === "completed") setIsCompleted(true);
+
+      // Check unlock: lấy danh sách lessons theo order, nếu có lesson trước
+      // chưa completed thì khóa lesson hiện tại.
+      const progRes = await programService.get(programId);
+      if (progRes.success) {
+        const data = progRes.data as { lessons?: { id: string; order?: number }[] };
+        const sorted = ([...(data.lessons ?? [])]).sort(
+          (a, b) => (a.order ?? 0) - (b.order ?? 0)
+        );
+        const idx = sorted.findIndex((x) => x.id === lessonId);
+        if (idx > 0) {
+          const prev = sorted.slice(0, idx);
+          const prevProgressMap = new Map(
+            lp.map((p) => [p.id, p.lessonStatus])
+          );
+          const allPrevDone = prev.every(
+            (p) => prevProgressMap.get(p.id) === "completed"
+          );
+          if (!allPrevDone) setIsLocked(true);
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -260,6 +285,15 @@ export default function EmployeeLessonPage({
           </AlertDescription>
         </Alert>
       )}
+      {isLocked && (
+        <Alert className="mb-4 border-amber-500/40 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <Lock className="h-4 w-4" />
+          <AlertDescription className="text-sm">
+            Bài học này đang bị khóa. Bạn cần hoàn thành các bài học trước đó
+            trước khi tiếp tục.
+          </AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>
@@ -283,7 +317,20 @@ export default function EmployeeLessonPage({
           </div>
         </CardHeader>
         <CardContent>
-          {lesson.contentType === "text" ? (
+          {isLocked ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center text-muted-foreground">
+              <Lock className="h-12 w-12" />
+              <p className="text-sm">
+                Hoàn thành các bài học trước đó để mở khóa nội dung này.
+              </p>
+              <Button asChild variant="outline" className="mt-2">
+                <Link href={`/dashboard/programs/${programId}`}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Quay lại chương trình
+                </Link>
+              </Button>
+            </div>
+          ) : lesson.contentType === "text" ? (
             <div className="prose prose-sm max-w-none dark:prose-invert [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_img]:max-w-full [&_a]:text-blue-600 [&_a]:underline"
               dangerouslySetInnerHTML={{ __html: lesson.textContent || "" }}
             />
@@ -307,7 +354,7 @@ export default function EmployeeLessonPage({
       </Card>
 
       {/* Mark complete - chỉ hiện khi không có test, hoặc khi đã pass test */}
-      {(!lesson.hasTest || submitResult?.passed) && !isCompleted && (
+      {(!lesson.hasTest || submitResult?.passed) && !isCompleted && !isLocked && (
         <div className="mt-4 flex justify-end">
           <Button
             onClick={handleMarkComplete}
