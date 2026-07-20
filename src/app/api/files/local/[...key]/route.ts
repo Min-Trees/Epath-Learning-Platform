@@ -25,8 +25,6 @@ function guessMime(fileName: string): string {
     return ext === "mov" ? "video/quicktime" : `video/${ext}`;
   }
   if (ext === "pdf") return "application/pdf";
-  if (ext === "pptx")
-    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
   return "application/octet-stream";
 }
 

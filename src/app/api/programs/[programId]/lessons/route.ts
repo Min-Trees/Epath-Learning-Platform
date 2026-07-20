@@ -67,7 +67,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
     const title = (body.title ?? "").trim();
     if (!title) return bad("Tiêu đề lesson không được trống");
     const contentType = body.contentType ?? "text";
-    if (!["text", "video", "pdf", "ppt"].includes(contentType)) {
+    if (!["text", "video", "pdf"].includes(contentType)) {
       return bad("contentType không hợp lệ");
     }
     if (contentType === "text" && !body.textContent) {

@@ -20,7 +20,6 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
-  Presentation,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,14 +63,12 @@ const TYPE_ICONS: Record<
   text: FileText,
   video: Video,
   pdf: FileType,
-  ppt: Presentation,
 };
 
 const TYPE_LABELS: Record<LessonContentType, string> = {
   text: "Văn bản",
   video: "Video",
   pdf: "PDF",
-  ppt: "PPT (Slide)",
 };
 
 interface LessonFormState {
@@ -435,16 +432,11 @@ export default function AdminProgramDetailPage({
     const expectedPrefix =
       lessonForm.contentType === "video"
         ? "video/"
-        : lessonForm.contentType === "ppt"
-          ? "application/vnd.openxmlformats-officedocument.presentationml"
-          : "application/pdf";
+        : "application/pdf";
     const matches =
       lessonForm.contentType === "video"
         ? file.type.startsWith("video/")
-        : lessonForm.contentType === "ppt"
-          ? file.type.startsWith(expectedPrefix) ||
-            file.name.toLowerCase().endsWith(".pptx")
-          : file.type === "application/pdf";
+        : file.type === "application/pdf";
     if (!matches) {
       setError(`File phải có MIME type ${expectedPrefix}*`);
       return;
@@ -902,7 +894,6 @@ export default function AdminProgramDetailPage({
                     <option value="text">Văn bản (rich text)</option>
                     <option value="video">Video</option>
                     <option value="pdf">PDF</option>
-                    <option value="ppt">PPT (Slide)</option>
                   </select>
                 </div>
                 <div>

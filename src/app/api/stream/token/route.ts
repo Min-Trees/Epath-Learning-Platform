@@ -6,7 +6,7 @@ import { signStreamSession } from "@/lib/stream-session";
 interface RequestBody {
   lessonId?: string;
   programId?: string;
-  kind?: "video" | "pdf" | "ppt";
+  kind?: "video" | "pdf";
 }
 
 const TTL_SECONDS = 120;
@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
     if (!lessonId || !programId) {
       return bad("Thiếu lessonId hoặc programId");
     }
-    if (kind !== "video" && kind !== "pdf" && kind !== "ppt") {
-      return bad("kind phải là 'video', 'pdf' hoặc 'ppt'");
+    if (kind !== "video" && kind !== "pdf") {
+      return bad("kind phải là 'video' hoặc 'pdf'");
     }
 
     const lessonRef = adminDb

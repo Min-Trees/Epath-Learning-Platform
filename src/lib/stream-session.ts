@@ -11,8 +11,8 @@ export interface StreamSessionPayload {
   lid: string;
   /** file key in R2 */
   fk: string;
-  /** "video" | "pdf" | "ppt" */
-  kind: "video" | "pdf" | "ppt";
+  /** "video" | "pdf" */
+  kind: "video" | "pdf";
   /** session id (random) - for tracking access */
   sid: string;
 }
@@ -39,7 +39,7 @@ export function verifyStreamSession(
       typeof p.lid !== "string" ||
       typeof p.fk !== "string" ||
       typeof p.sid !== "string" ||
-      (p.kind !== "video" && p.kind !== "pdf" && p.kind !== "ppt")
+      (p.kind !== "video" && p.kind !== "pdf")
     ) {
       return null;
     }

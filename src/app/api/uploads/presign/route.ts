@@ -29,14 +29,11 @@ export async function POST(req: NextRequest) {
     // Validate mimeType theo contentType dự kiến
     if (
       mimeType.startsWith("video/") ||
-      mimeType === "application/pdf" ||
-      mimeType.startsWith(
-        "application/vnd.openxmlformats-officedocument.presentationml"
-      )
+      mimeType === "application/pdf"
     ) {
       // ok
     } else {
-      return bad("Chỉ hỗ trợ video/*, application/pdf hoặc PPTX");
+      return bad("Chỉ hỗ trợ video/* hoặc application/pdf");
     }
 
     // Validate size: chỉ yêu cầu size > 0, không giới hạn trên.
