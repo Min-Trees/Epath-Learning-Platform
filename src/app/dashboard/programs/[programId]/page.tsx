@@ -13,6 +13,8 @@ import {
   FileType,
   Play,
   Lock,
+  FileQuestionMark,
+  File,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,18 +37,22 @@ import {
 import type { Program, Lesson, LessonContentType, LessonProgress } from "@/types/training";
 
 const TYPE_ICONS: Record<
-  LessonContentType,
+  LessonContentType | string,
   React.ComponentType<{ className?: string }>
 > = {
   text: FileText,
   video: Video,
   pdf: FileType,
+  quiz: FileQuestionMark,
+  default: File,
 };
 
-const TYPE_LABELS: Record<LessonContentType, string> = {
+const TYPE_LABELS: Record<LessonContentType | string, string> = {
   text: "Văn bản",
   video: "Video",
   pdf: "PDF",
+  quiz: "Bài kiểm tra",
+  default: "Nội dung",
 };
 
 export default function EmployeeProgramDetailPage({
@@ -187,7 +193,7 @@ export default function EmployeeProgramDetailPage({
         {(() => {
           let previousCompleted = true;
           return lessons.map((l, idx) => {
-            const Icon = TYPE_ICONS[l.contentType];
+            const Icon = TYPE_ICONS[l.contentType] ?? TYPE_ICONS.default;
             const lp = progressMap.get(l.id);
             const isDone = lp?.lessonStatus === "completed";
             const isInProgress = lp?.lessonStatus === "in_progress";
@@ -223,7 +229,7 @@ export default function EmployeeProgramDetailPage({
                   <div className="text-xs text-muted-foreground">
                     {locked
                       ? "Hoàn thành bài trước để mở khóa"
-                      : `${TYPE_LABELS[l.contentType]}${
+                      : `${TYPE_LABELS[l.contentType] ?? TYPE_LABELS.default}${
                           l.hasTest ? " · có bài test" : ""
                         }`}
                   </div>

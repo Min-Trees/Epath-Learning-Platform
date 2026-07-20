@@ -60,25 +60,25 @@ const adminItems: NavItem[] = [
     title: "Quản lý người dùng",
     href: "/admin/users",
     icon: Users,
-    roles: ["admin", "hr"],
+    roles: ["admin", "manager", "hr"],
   },
   {
     title: "Chương trình",
     href: "/admin/programs",
     icon: BookOpen,
-    roles: ["admin", "hr", "trainer"],
+    roles: ["admin", "manager", "hr", "trainer"],
   },
   {
     title: "Gán chương trình",
     href: "/admin/assignments",
     icon: UserPlus,
-    roles: ["admin", "hr"],
+    roles: ["admin", "manager", "hr"],
   },
   {
     title: "Báo cáo",
     href: "/admin/reports",
     icon: BarChart3,
-    roles: ["admin", "hr"],
+    roles: ["admin", "manager", "hr"],
   },
 ];
 
@@ -96,17 +96,24 @@ export function Sidebar() {
     (item) => !item.roles || item.roles.includes(user?.role as UserRole)
   );
 
-  const isActiveDesktop = (href: string) =>
-    pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+  const isActiveDesktop = (href: string) => {
+    if (pathname === href) return true;
+    if (href === "/dashboard") return false;
+    if (href === "/admin") return false;
+    return pathname.startsWith(href + "/");
+  };
 
   const NavLink = ({
     item,
   }: {
     item: NavItem;
   }) => {
-    const isActive =
-      pathname === item.href ||
-      (item.href !== "/dashboard" && pathname.startsWith(item.href));
+    const isActive = () => {
+      if (pathname === item.href) return true;
+      if (item.href === "/dashboard") return false;
+      if (item.href === "/admin") return false;
+      return pathname.startsWith(item.href + "/");
+    };
 
     return (
       <Link
@@ -119,7 +126,7 @@ export function Sidebar() {
         }}
         className={cn(
           "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-          isActive
+          isActive()
             ? "bg-primary text-primary-foreground"
             : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         )}
