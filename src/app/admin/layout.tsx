@@ -9,20 +9,24 @@ import { cn } from "@/utils";
 import { useUIStore } from "@/stores";
 import { Button } from "@/components/ui/button";
 
-export default function DashboardLayout({
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
-  }, [isLoading, isAuthenticated, router]);
+    // Chỉ admin hoặc manager mới được truy cập
+    if (!isLoading && isAuthenticated && user?.role !== "admin" && user?.role !== "manager") {
+      router.push("/dashboard");
+    }
+  }, [isLoading, isAuthenticated, user, router]);
 
   // Close sidebar on mobile when route changes
   useEffect(() => {
@@ -45,6 +49,10 @@ export default function DashboardLayout({
   }
 
   if (!isAuthenticated) {
+    return null;
+  }
+
+  if (user?.role !== "admin" && user?.role !== "manager") {
     return null;
   }
 

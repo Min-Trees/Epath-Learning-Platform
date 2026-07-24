@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       return bad("Lesson chưa có file. Vui lòng upload trước.", 400);
     }
 
-    if (!me.isAdmin) {
+    if (!me.isAdmin && !me.isManager) {
       const assignmentSnap = await adminDb
         .collection("assignments")
         .where("userId", "==", me.uid)

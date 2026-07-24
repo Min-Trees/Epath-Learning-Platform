@@ -110,7 +110,7 @@ export default function AdminDashboardPage() {
     <PageContainer
       title="Bảng điều khiển quản trị"
       description="Tổng quan về hệ thống đào tạo"
-      breadcrumbs={[{ label: "Quản trị" }]}
+      showBreadcrumb={false}
     >
       {/* Stats Grid */}
       <div className="mb-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">

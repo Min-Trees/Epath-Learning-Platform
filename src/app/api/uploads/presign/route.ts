@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad, getBaseUrl } from "@/lib/api-auth";
-import { buildFileKey, presignPutUrl, R2_USE_LOCAL_FALLBACK } from "@/lib/r2";
+import { getAuthUser, isManagerOrAdmin, ok, bad, getBaseUrl } from "@/lib/api-auth";
+import { buildFileKey, presignPutUrl, S3_USE_LOCAL_FALLBACK, S3_CONFIGURED } from "@/lib/s3";
 
 /**
  * POST /api/uploads/presign
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden - chỉ admin và manager", 403);
 
     const body = (await req.json().catch(() => ({}))) as {
       fileName?: string;
@@ -57,7 +57,9 @@ export async function POST(req: NextRequest) {
     // frontend gọi confirm-upload sẽ re-key theo lessonId thật.
     const effectiveLessonId = lessonId === "new" ? `pending-${Date.now()}` : lessonId;
     const fileKey = buildFileKey({ programId, lessonId: effectiveLessonId, fileName });
-    const expiresIn = 600; // 10 phút
+    // Expires dài hơn cho file lớn - file 2GB qua mạng chậm có thể mất >30 phút.
+    // Khi dùng local fallback thì để 600s là đủ; khi upload thẳng lên S3 thì để 2 giờ.
+    const expiresIn = S3_USE_LOCAL_FALLBACK ? 600 : 2 * 60 * 60;
     const uploadUrl = await presignPutUrl({
       fileKey,
       contentType: mimeType,
@@ -65,7 +67,30 @@ export async function POST(req: NextRequest) {
       expiresInSeconds: expiresIn,
       appBaseUrl: getBaseUrl(req),
     });
-    return ok({ uploadUrl, fileKey, expiresIn, localFallback: R2_USE_LOCAL_FALLBACK });
+    // Log debug: cho biết URL trỏ về đâu (S3 thật hay local fallback)
+    let uploadTarget: string;
+    try {
+      uploadTarget = new URL(uploadUrl).origin;
+    } catch {
+      uploadTarget = "invalid-url";
+    }
+    console.log(
+      `[presign] fileKey=${fileKey} size=${body.size} mode=${S3_USE_LOCAL_FALLBACK ? "local-fallback" : "direct-s3"} target=${uploadTarget}`
+    );
+    return ok({
+      uploadUrl,
+      fileKey,
+      expiresIn,
+      localFallback: S3_USE_LOCAL_FALLBACK,
+      // Khi S3 đã cấu hình, client có thể chọn upload qua proxy server-side
+      // (bypass CORS). URL proxy đặt cùng origin, không cần bucket CORS.
+      proxyUrl: S3_CONFIGURED
+        ? `${getBaseUrl(req)}/api/uploads/s3-proxy?key=${encodeURIComponent(fileKey)}&contentType=${encodeURIComponent(mimeType)}`
+        : null,
+      // Max size do S3 provider giới hạn (mặc định 5GB cho PUT single object).
+      // Multipart upload cho file >5GB — xem tài liệu.
+      maxSizeBytes: 5 * 1024 * 1024 * 1024,
+    });
   } catch (e) {
     console.error("[api/uploads/presign][POST] error:", e);
     return bad(e instanceof Error ? e.message : "Internal error", 500);

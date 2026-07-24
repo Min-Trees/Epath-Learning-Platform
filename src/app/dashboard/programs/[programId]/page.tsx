@@ -13,7 +13,7 @@ import {
   FileType,
   Play,
   Lock,
-  FileQuestionMark,
+  HelpCircle,
   File,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,7 @@ const TYPE_ICONS: Record<
   text: FileText,
   video: Video,
   pdf: FileType,
-  quiz: FileQuestionMark,
+  quiz: HelpCircle,
   default: File,
 };
 

@@ -24,6 +24,7 @@ interface SecureVideoPlayerProps {
   title: string;
   userId?: string;
   requireFullWatch?: boolean;
+  onComplete?: () => void; // Callback khi video kết thúc
 }
 
 interface TokenResponse {
@@ -42,6 +43,7 @@ export function SecureVideoPlayer({
   title,
   userId,
   requireFullWatch = false,
+  onComplete,
 }: SecureVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -164,7 +166,11 @@ useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     void progress.writeProgress(v.duration || lastTimeRef.current, v.duration || 0);
-  }, [progress]);
+    // Gọi callback khi video kết thúc để trigger auto-complete
+    if (onComplete) {
+      onComplete();
+    }
+  }, [progress, onComplete]);
 
   useEffect(() => {
     const onChange = () => {

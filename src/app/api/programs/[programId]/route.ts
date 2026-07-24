@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 
 /**
  * GET /api/programs/:programId
@@ -17,16 +17,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
     if (!snap.exists) return bad("Program not found", 404);
     const data = snap.data() as Record<string, unknown>;
 
-    // Employee chỉ xem được program đã published
-    if (!isAdmin(me) && data.status !== "published") {
+    // Employee chỉ xem được program đã published; Manager xem được cả draft
+    const canViewDraft = isAdmin(me) || isManager(me);
+    if (!canViewDraft && data.status !== "published") {
       return bad("Forbidden", 403);
     }
 
     const lessonsSnap = await ref.collection("lessons").orderBy("order", "asc").get();
     const lessons = lessonsSnap.docs.map((d) => {
       const ld = d.data() as Record<string, unknown>;
-      // Employee không thấy fileKey
-      if (!isAdmin(me)) {
+      // Employee không thấy fileKey; Manager và Admin được thấy
+      const hideFileKey = !isAdmin(me) && !isManager(me);
+      if (hideFileKey) {
         const { fileKey: _fk, ...rest } = ld;
         return { id: d.id, ...rest };
       }

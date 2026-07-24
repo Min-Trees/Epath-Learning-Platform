@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -14,6 +14,7 @@ import {
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuthStore } from "@/stores";
+import { clearTokenCache } from "@/lib/api-client";
 import type { User, UserRole } from "@/types";
 
 interface AuthContextType {
@@ -42,6 +43,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { setUser, setLoading, user: storeUser } = useAuthStore();
   const [isInitializing, setIsInitializing] = useState(true);
 
+  // Xử lý sự kiện token expired từ api-client
+  const handleTokenExpired = useCallback(() => {
+    console.warn("[auth] Token expired, forcing logout");
+    clearTokenCache();
+    setUser(null);
+  }, [setUser]);
+
+  useEffect(() => {
+    // Lắng nghe sự kiện token expired
+    window.addEventListener("auth:token-expired", handleTokenExpired);
+    return () => {
+      window.removeEventListener("auth:token-expired", handleTokenExpired);
+    };
+  }, [handleTokenExpired]);
+
+  // Lắng nghe thay đổi auth state từ Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -89,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } else {
         setUser(null);
+        clearTokenCache();
       }
       setIsInitializing(false);
     });
@@ -177,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    clearTokenCache();
     await signOut(auth);
     setUser(null);
   };

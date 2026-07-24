@@ -1,11 +1,11 @@
-// Local "R2" serve endpoint - chỉ dùng khi R2 chưa cấu hình (R2_USE_LOCAL_FALLBACK=1).
+// Local "S3" serve endpoint - chỉ dùng khi S3 chưa cấu hình (S3_USE_LOCAL_FALLBACK=1).
 // GET file đã upload từ local-receive.
 // QUAN TRỌNG: route này KHÔNG đi qua session token nên chỉ cho admin truy cập
 // (kể cả presigned URL). User thường phải dùng /api/stream/[token]/file.
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { LOCAL_R2_DIR, R2_USE_LOCAL_FALLBACK } from "@/lib/r2";
+import { LOCAL_S3_DIR, S3_USE_LOCAL_FALLBACK } from "@/lib/s3";
 import { getAuthUser, isAdmin } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
@@ -32,9 +32,9 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ key: string[] }> }
 ) {
-  if (!R2_USE_LOCAL_FALLBACK) {
+  if (!S3_USE_LOCAL_FALLBACK) {
     return NextResponse.json(
-      { success: false, error: "Local R2 fallback is not enabled" },
+      { success: false, error: "Local S3 fallback is not enabled" },
       { status: 400 }
     );
   }
@@ -74,7 +74,7 @@ export async function GET(
         { status: 403 }
       );
     }
-    const target = safeJoin(LOCAL_R2_DIR, key);
+    const target = safeJoin(LOCAL_S3_DIR, key);
     const st = await stat(target);
     if (!st.isFile()) {
       return NextResponse.json(

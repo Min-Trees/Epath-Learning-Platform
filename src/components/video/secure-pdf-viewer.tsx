@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
     ShieldCheck,
@@ -19,6 +19,7 @@ interface SecurePdfViewerProps {
   lessonId: string;
   title: string;
   fileName?: string;
+  onComplete?: () => void; // Callback khi đã cuộn đến cuối PDF
 }
 
 interface TokenResponse {
@@ -32,6 +33,7 @@ export function SecurePdfViewer({
   lessonId,
   title,
   fileName,
+  onComplete,
 }: SecurePdfViewerProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +41,62 @@ export function SecurePdfViewer({
   const [pagesHtml, setPagesHtml] = useState<string[]>([]);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [scale, setScale] = useState(1.25);
+  const [scale, setScale] = useState(1);
+  const [renderScale, setRenderScale] = useState(1);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const blobRef = useRef<Blob | null>(null);
+
+  const renderPdf = useCallback(async (blob: Blob, targetScale: number) => {
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/" +
+        pdfjsLib.version +
+        "/pdf.worker.min.mjs";
+
+      const arrayBuffer = await blob.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      setNumPages(pdf.numPages);
+
+      const rendered: string[] = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: targetScale });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        if (!context) continue;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvas, canvasContext: context, viewport }).promise;
+
+        const dataUrl = canvas.toDataURL("image/png");
+        const textContent = await page.getTextContent();
+        const textItems = textContent.items
+          .map((item: { str?: string } | unknown) => {
+            if (item && typeof item === "object" && "str" in item) {
+              return (item as { str?: string }).str ?? "";
+            }
+            return "";
+          })
+          .join(" ");
+
+        rendered.push(`
+          <div class="pdf-page" data-page="${i}" style="position:relative;width:${viewport.width}px;max-width:100%;height:${viewport.height}px;margin:0 auto 16px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.1);box-sizing:border-box;">
+            <img src="${dataUrl}" alt="page ${i}" style="width:100%;height:100%;display:block;user-select:none;-webkit-user-drag:none;pointer-events:none;" draggable="false"/>
+            <div class="pdf-text-layer" style="position:absolute;inset:0;overflow:hidden;opacity:0.0001;pointer-events:auto;" aria-hidden="true">${escapeHtml(textItems)}</div>
+            <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:2px 8px;border-radius:4px;">${i}/${pdf.numPages}</div>
+          </div>
+        `);
+      }
+      setPagesHtml(rendered);
+    } catch (e) {
+      setError(
+        `Không tải được PDF: ${e instanceof Error ? e.message : "unknown"}`
+      );
+    }
+  }, []);
 
   const loadPdf = async () => {
     setLoading(true);
@@ -65,7 +120,6 @@ export function SecurePdfViewer({
         throw new Error(json.error ?? "Không tạo được session");
       }
 
-      // Fetch PDF blob through server (hides S3 URL)
       const pdfRes = await fetch(`/api/stream/${json.data.token}/file`);
       if (!pdfRes.ok) {
         const errText = await pdfRes.text();
@@ -73,54 +127,12 @@ export function SecurePdfViewer({
       }
 
       const blob = await pdfRes.blob();
+      blobRef.current = blob;
       const objectUrl = URL.createObjectURL(blob);
       objectUrlRef.current = objectUrl;
       setPdfUrl(objectUrl);
 
-      // Render PDF thành HTML bằng pdfjs-dist (Mozilla pdf.js).
-      // Worker bundle lấy qua CDN để tránh vấn đề bundling với Next.js.
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/" +
-        pdfjsLib.version +
-        "/pdf.worker.min.mjs";
-
-      const arrayBuffer = await blob.arrayBuffer();
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-      const pdf = await loadingTask.promise;
-      setNumPages(pdf.numPages);
-
-      const rendered: string[] = [];
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        if (!context) continue;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvas, canvasContext: context, viewport }).promise;
-
-        const dataUrl = canvas.toDataURL("image/png");
-        const textContent = await page.getTextContent();
-        const textItems = textContent.items
-          .map((item: { str?: string } | unknown) => {
-            if (item && typeof item === "object" && "str" in item) {
-              return (item as { str?: string }).str ?? "";
-            }
-            return "";
-          })
-          .join(" ");
-
-        rendered.push(`
-          <div class="pdf-page" data-page="${i}" style="position:relative;width:${viewport.width}px;height:${viewport.height}px;margin:0 auto 16px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <img src="${dataUrl}" alt="page ${i}" style="width:100%;height:100%;display:block;user-select:none;-webkit-user-drag:none;pointer-events:none;" draggable="false"/>
-            <div class="pdf-text-layer" style="position:absolute;inset:0;overflow:hidden;opacity:0.0001;pointer-events:auto;" aria-hidden="true">${escapeHtml(textItems)}</div>
-            <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:2px 8px;border-radius:4px;">${i}/${pdf.numPages}</div>
-          </div>
-        `);
-      }
-      setPagesHtml(rendered);
+      await renderPdf(blob, renderScale);
     } catch (e) {
       setError(
         `Không tải được PDF: ${e instanceof Error ? e.message : "unknown"}`
@@ -141,7 +153,18 @@ export function SecurePdfViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-render PDF when scale changes
+  useEffect(() => {
+    if (blobRef.current && !loading) {
+      setPagesHtml([]);
+      void renderPdf(blobRef.current, scale);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scale]);
+
   // Theo dõi trang hiện tại dựa vào scroll position
+  // Đồng thời kiểm tra xem đã cuộn đến cuối chưa để trigger onComplete
+  const hasCompletedRef = useRef(false);
   useEffect(() => {
     const el = containerRef.current;
     if (!el || pagesHtml.length === 0) return;
@@ -153,10 +176,24 @@ export function SecurePdfViewer({
         if (p.offsetTop <= top + 50) visible = idx + 1;
       });
       setCurrentPage(visible);
+
+      // Kiểm tra đã cuộn đến cuối chưa (ở trang cuối cùng + 1 viewport)
+      if (!hasCompletedRef.current && pagesHtml.length > 0) {
+        const lastPageEl = pageEls[pageEls.length - 1];
+        if (lastPageEl) {
+          const lastPageBottom = lastPageEl.offsetTop + lastPageEl.offsetHeight;
+          if (top + el.clientHeight >= lastPageBottom - 100) {
+            hasCompletedRef.current = true;
+            if (onComplete) {
+              onComplete();
+            }
+          }
+        }
+      }
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [pagesHtml.length]);
+  }, [pagesHtml.length, onComplete]);
 
   const goToPage = (p: number) => {
     const el = containerRef.current;
@@ -170,7 +207,7 @@ export function SecurePdfViewer({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 overflow-hidden">
       <div className="relative h-[75vh] w-full overflow-hidden rounded-md border bg-muted/20">
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
@@ -202,7 +239,9 @@ export function SecurePdfViewer({
             ref={containerRef}
             className="h-full w-full overflow-auto bg-muted/30 p-4"
           >
-            <div dangerouslySetInnerHTML={{ __html: pagesHtml.join("") }} />
+            <div style={{ minWidth: 0, maxWidth: "100%" }}>
+              <div dangerouslySetInnerHTML={{ __html: pagesHtml.join("") }} />
+            </div>
           </div>
         )}
         {!pdfUrl && !error && !loading && (

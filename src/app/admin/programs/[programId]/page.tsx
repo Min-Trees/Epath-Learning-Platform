@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useCallback } from "react";
+import { useEffect, useState, use, useCallback, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -20,11 +20,22 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
+  Users,
+  BarChart3,
+  MoreHorizontal,
+  BookOpen,
+  Target,
+  Clock,
+  Calendar,
+  GripVertical,
+  X,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -41,25 +52,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PageContainer } from "@/components/layout";
 import { useAuth } from "@/hooks/use-auth";
 import { programService, lessonService } from "@/services/training";
 import type { Program, Lesson, LessonContentType } from "@/types/training";
 import { formatDateTime } from "@/utils";
+import { performUpload } from "@/lib/upload";
 
-// Lazy load RichTextEditor (TinyMCE is heavy ~500KB)
-const RichTextEditor = dynamic(
-  () => import("@/components/rich-text-editor").then((m) => m.RichTextEditor),
+// Lazy load TiptapEditor
+const TiptapEditor = dynamic(
+  () => import("@/components/tiptap-editor").then((m) => m.TiptapEditor),
   {
     loading: () => <div className="h-64 w-full animate-pulse rounded-md bg-muted" />,
     ssr: false,
   }
 );
 
-const TYPE_ICONS: Record<
-  LessonContentType,
-  React.ComponentType<{ className?: string }>
-> = {
+const TYPE_ICONS: Record<LessonContentType, React.ComponentType<{ className?: string }>> = {
   text: FileText,
   video: Video,
   pdf: FileType,
@@ -69,6 +84,12 @@ const TYPE_LABELS: Record<LessonContentType, string> = {
   text: "Văn bản",
   video: "Video",
   pdf: "PDF",
+};
+
+const TYPE_COLORS: Record<LessonContentType, string> = {
+  text: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  video: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  pdf: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
 };
 
 interface LessonFormState {
@@ -110,27 +131,31 @@ export default function AdminProgramDetailPage({
 }) {
   const { programId } = use(params);
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "manager";
 
   const [program, setProgram] = useState<Program | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Sửa program
+  // Edit program
   const [editingProgram, setEditingProgram] = useState(false);
   const [programForm, setProgramForm] = useState({ title: "", description: "" });
   const [isSavingProgram, setIsSavingProgram] = useState(false);
 
-  // Tạo / sửa lesson
+  // Lesson form
   const [lessonForm, setLessonForm] = useState<LessonFormState | null>(null);
   const [isSavingLesson, setIsSavingLesson] = useState(false);
+  const [draggedLesson, setDraggedLesson] = useState<string | null>(null);
 
   // Test editor
   const [testEditorLesson, setTestEditorLesson] = useState<Lesson | null>(null);
 
   // Publish
   const [isPublishing, setIsPublishing] = useState(false);
+
+  // Preview mode
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -147,16 +172,7 @@ export default function AdminProgramDetailPage({
         }
         setProgram(data.program);
         setLessons(
-          (data.lessons ?? []).map((l) => ({
-            ...l,
-            createdAt: new Date(
-              (l as { createdAt?: { toDate?: () => Date } | Date })
-                .createdAt instanceof Date
-                ? ((l as { createdAt: Date }).createdAt as unknown as Date)
-                : ((l as { createdAt?: { toDate?: () => Date } }).createdAt
-                    ?.toDate?.() ?? new Date())
-            ),
-          }))
+          (data.lessons ?? []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
         );
         setProgramForm({
           title: data.program.title,
@@ -176,7 +192,7 @@ export default function AdminProgramDetailPage({
     load();
   }, [load]);
 
-  // ─── Program actions ─────────────────────────────────────
+  // Program actions
   const handleSaveProgram = async () => {
     if (!programForm.title.trim()) {
       setError("Tiêu đề không được trống");
@@ -226,27 +242,9 @@ export default function AdminProgramDetailPage({
     }
   };
 
-  const handleDeleteProgram = async () => {
-    if (!window.confirm(`Xóa chương trình "${program?.title}"?\nKhông thể khôi phục.`))
-      return;
-    try {
-      const res = await programService.remove(programId);
-      if (res.success) {
-        window.location.href = "/admin/programs";
-      } else {
-        setError((res as { error?: string }).error ?? "Lỗi xóa");
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  // ─── Lesson actions ──────────────────────────────────────
+  // Lesson actions
   const openCreateLesson = () => {
-    const nextOrder =
-      lessons.length === 0
-        ? 1
-        : Math.max(...lessons.map((l) => l.order ?? 0)) + 1;
+    const nextOrder = lessons.length === 0 ? 1 : Math.max(...lessons.map((l) => l.order ?? 0)) + 1;
     setLessonForm({ ...EMPTY_LESSON_FORM, order: nextOrder });
   };
 
@@ -310,7 +308,7 @@ export default function AdminProgramDetailPage({
           return;
         }
       } else {
-        // Create lesson trước (chưa có file) để lấy lessonId thật
+        // Create lesson
         const res = await lessonService.create(programId, {
           title: lessonForm.title.trim(),
           order: lessonForm.order,
@@ -323,10 +321,11 @@ export default function AdminProgramDetailPage({
           return;
         }
         const newId = (res.data as { lessonId: string }).lessonId;
+        
+        // Upload file if exists
         if (lessonForm.contentType !== "text" && lessonForm.selectedFile && lessonForm.fileMeta) {
-          // File đang ở key pending (presign trước khi có lessonId).
-          // Re-presign với lessonId thật rồi re-upload.
           setLessonForm((f) => (f ? { ...f, isUploading: true, uploadProgress: 0, uploadError: null } : f));
+          
           const presignRes = await import("@/services/training").then((m) =>
             m.uploadService.presign({
               fileName: lessonForm.fileMeta!.fileName,
@@ -337,50 +336,55 @@ export default function AdminProgramDetailPage({
             })
           );
           if (!presignRes.success || !presignRes.data) {
-            setError(
-              (presignRes as { error?: string }).error ??
-                "Không tạo được presigned URL mới"
-            );
+            setError((presignRes as { error?: string }).error ?? "Không tạo được presigned URL");
             setIsSavingLesson(false);
             return;
           }
-          const newUploadUrl = (presignRes.data as { uploadUrl: string }).uploadUrl;
-          const newFileKey = (presignRes.data as { fileKey: string }).fileKey;
-          const localFallback = (presignRes.data as { localFallback?: boolean })
-            .localFallback;
-
-          const headers: Record<string, string> = {
-            "Content-Type": lessonForm.fileMeta!.mimeType,
+          
+          const { uploadUrl, fileKey, proxyUrl } = presignRes.data as {
+            uploadUrl: string;
+            fileKey: string;
+            proxyUrl?: string | null;
           };
-          if (localFallback) {
+          const localFallback = (presignRes.data as { localFallback?: boolean }).localFallback;
+
+          // Lấy token cho proxy mode
+          let authToken: string | undefined;
+          if (localFallback || proxyUrl) {
             const { auth } = await import("@/lib/firebase");
             if (auth.currentUser) {
-              const token = await auth.currentUser.getIdToken();
-              headers["Authorization"] = `Bearer ${token}`;
+              authToken = await auth.currentUser.getIdToken();
             }
           }
 
-          const uploadRes = await fetch(newUploadUrl, {
-            method: "PUT",
-            body: lessonForm.selectedFile,
-            headers,
+          const uploadRes = await performUpload({
+            target: {
+              uploadUrl,
+              fileKey,
+              expiresIn: 2 * 60 * 60,
+              localFallback: localFallback ?? false,
+              proxyUrl: proxyUrl ?? null,
+            },
+            file: lessonForm.selectedFile,
+            contentType: lessonForm.fileMeta!.mimeType,
+            authToken,
+            onProgress: (pct) => {
+              setLessonForm((f) => (f ? { ...f, uploadProgress: pct } : f));
+            },
           });
           if (!uploadRes.ok) {
-            const errText = await uploadRes.text();
-            setError(`Upload thất bại (${uploadRes.status}): ${errText}`);
+            setError(`Upload thất bại (${uploadRes.status}, mode=${uploadRes.mode}): ${uploadRes.bodyText}`);
             setIsSavingLesson(false);
             return;
           }
 
-          // Confirm với fileKey thật
+          // Confirm upload
           const confirmRes = await lessonService.confirmUpload(programId, newId, {
-            fileKey: newFileKey,
+            fileKey,
             fileMeta: lessonForm.fileMeta,
           });
           if (!confirmRes.success) {
-            setError(
-              (confirmRes as { error?: string }).error ?? "Lỗi xác nhận upload"
-            );
+            setError((confirmRes as { error?: string }).error ?? "Lỗi xác nhận upload");
             setIsSavingLesson(false);
             return;
           }
@@ -396,8 +400,7 @@ export default function AdminProgramDetailPage({
   };
 
   const handleDeleteLesson = async (l: Lesson) => {
-    if (!window.confirm(`Xóa lesson "${l.title}"?\nKhông thể khôi phục.`))
-      return;
+    if (!window.confirm(`Xóa lesson "${l.title}"?`)) return;
     try {
       const res = await lessonService.remove(programId, l.id);
       if (res.success) {
@@ -426,29 +429,22 @@ export default function AdminProgramDetailPage({
     }
   };
 
-  // ─── File upload ──────────────────────────────────────────
+  // File upload
   const handleFileSelect = async (file: File) => {
     if (!lessonForm) return;
-    const expectedPrefix =
-      lessonForm.contentType === "video"
-        ? "video/"
-        : "application/pdf";
     const matches =
       lessonForm.contentType === "video"
         ? file.type.startsWith("video/")
         : file.type === "application/pdf";
     if (!matches) {
-      setError(`File phải có MIME type ${expectedPrefix}*`);
+      setError(`File phải là ${lessonForm.contentType === "video" ? "video" : "PDF"}`);
       return;
     }
-    // Không giới hạn kích thước file.
 
     setLessonForm((f) =>
       f ? { ...f, isUploading: true, uploadProgress: 0, uploadError: null, selectedFile: file } : f
     );
     try {
-      // Lấy presigned URL. Với lesson mới (chưa có id), tạm thời dùng "new" làm
-      // lessonId để backend có thể validate sau.
       const lessonIdForKey = lessonForm.id ?? "new";
       const presignRes = await import("@/services/training").then((m) =>
         m.uploadService.presign({
@@ -460,40 +456,44 @@ export default function AdminProgramDetailPage({
         })
       );
       if (!presignRes.success || !presignRes.data) {
-        throw new Error(
-          (presignRes as { error?: string }).error ?? "Không tạo được presigned URL"
-        );
+        throw new Error((presignRes as { error?: string }).error ?? "Không tạo được presigned URL");
       }
-      const { uploadUrl, fileKey } = presignRes.data as {
+      const { uploadUrl, fileKey, proxyUrl } = presignRes.data as {
         uploadUrl: string;
         fileKey: string;
+        proxyUrl?: string | null;
       };
+      const localFallback = (presignRes.data as { localFallback?: boolean }).localFallback;
 
-      // Upload file trực tiếp. Nếu là local fallback, cần gửi kèm Bearer token.
-      const headers: Record<string, string> = {
-        "Content-Type": file.type,
-      };
-      const localFallback = (presignRes.data as { localFallback?: boolean })
-        .localFallback;
-      if (localFallback) {
+      let authToken: string | undefined;
+      if (localFallback || proxyUrl) {
         const { auth } = await import("@/lib/firebase");
         if (auth.currentUser) {
-          const token = await auth.currentUser.getIdToken();
-          headers["Authorization"] = `Bearer ${token}`;
+          authToken = await auth.currentUser.getIdToken();
         }
       }
 
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers,
+      const uploadRes = await performUpload({
+        target: {
+          uploadUrl,
+          fileKey,
+          expiresIn: 2 * 60 * 60,
+          localFallback: localFallback ?? false,
+          proxyUrl: proxyUrl ?? null,
+        },
+        file,
+        contentType: file.type,
+        authToken,
+        onProgress: (pct) => {
+          setLessonForm((f) => (f ? { ...f, uploadProgress: pct } : f));
+        },
       });
       if (!uploadRes.ok) {
-        const errText = await uploadRes.text();
-        throw new Error(`Upload thất bại (${uploadRes.status}): ${errText}`);
+        throw new Error(
+          `Upload thất bại (${uploadRes.status}, mode=${uploadRes.mode}): ${uploadRes.bodyText.slice(0, 200)}`
+        );
       }
 
-      // Lưu metadata vào form (chưa lưu Firestore - chờ user bấm Lưu lesson)
       setLessonForm((f) =>
         f
           ? {
@@ -511,9 +511,7 @@ export default function AdminProgramDetailPage({
       );
     } catch (e) {
       setLessonForm((f) =>
-        f
-          ? { ...f, isUploading: false, uploadError: e instanceof Error ? e.message : String(e) }
-          : f
+        f ? { ...f, isUploading: false, uploadError: e instanceof Error ? e.message : String(e) } : f
       );
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -522,8 +520,11 @@ export default function AdminProgramDetailPage({
   if (isLoading) {
     return (
       <PageContainer title="...">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="mt-4 h-64 w-full" />
+        <Skeleton className="h-8 w-64 mb-4" />
+        <div className="space-y-4">
+          <Skeleton className="h-48" />
+          <Skeleton className="h-64" />
+        </div>
       </PageContainer>
     );
   }
@@ -537,7 +538,7 @@ export default function AdminProgramDetailPage({
         <Button asChild className="mt-4">
           <Link href="/admin/programs">
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Quay lại
+            Quay lại danh sách
           </Link>
         </Button>
       </PageContainer>
@@ -549,11 +550,6 @@ export default function AdminProgramDetailPage({
   return (
     <PageContainer
       title={editingProgram ? "Sửa chương trình" : program.title}
-      description={
-        isPublished
-          ? `Đã publish${program.publishedAt ? ` lúc ${formatDateTime(program.publishedAt)}` : ""}`
-          : "Bản nháp"
-      }
       breadcrumbs={[
         { label: "Quản trị", href: "/admin" },
         { label: "Chương trình", href: "/admin/programs" },
@@ -561,20 +557,21 @@ export default function AdminProgramDetailPage({
       ]}
       actions={
         <div className="flex gap-2">
-          <Button asChild variant="outline">
+          <Button variant="outline" asChild>
             <Link href="/admin/programs">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Quay lại
             </Link>
           </Button>
-          {isAdmin && !editingProgram && (
+          <Button
+            variant="outline"
+            onClick={() => setIsPreviewMode(true)}
+          >
+            <Eye className="mr-2 h-4 w-4" />
+            Xem trước
+          </Button>
+          {isAdmin && (
             <>
-              <Button asChild variant="outline">
-                <Link href={`/dashboard/programs/${programId}`}>
-                  <Eye className="mr-2 h-4 w-4" />
-                  Xem
-                </Link>
-              </Button>
               <Button
                 variant={isPublished ? "outline" : "default"}
                 onClick={handlePublish}
@@ -587,15 +584,7 @@ export default function AdminProgramDetailPage({
                 ) : (
                   <Send className="mr-2 h-4 w-4" />
                 )}
-                {isPublished ? "Chuyển về nháp" : "Publish"}
-              </Button>
-              <Button
-                variant="destructive"
-                size="icon"
-                onClick={handleDeleteProgram}
-                title="Xóa chương trình"
-              >
-                <Trash2 className="h-4 w-4" />
+                {isPublished ? "Hủy publish" : "Publish"}
               </Button>
             </>
           )}
@@ -603,483 +592,477 @@ export default function AdminProgramDetailPage({
       }
     >
       {error && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive" className="mb-6">
           <AlertDescription>
             <code className="text-xs">{error}</code>
           </AlertDescription>
         </Alert>
       )}
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Thông tin chương trình</CardTitle>
+      <div className="grid gap-6">
+        {/* Program Header Card */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <Badge variant={isPublished ? "success" : "secondary"}>
+                    {isPublished ? "Đã publish" : "Bản nháp"}
+                  </Badge>
+                  {isPublished && program.publishedAt && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      {formatDateTime(program.publishedAt)}
+                    </span>
+                  )}
+                </div>
+                {editingProgram ? (
+                  <div className="space-y-4 max-w-2xl">
+                    <div>
+                      <Label htmlFor="edit-title">Tiêu đề</Label>
+                      <Input
+                        id="edit-title"
+                        value={programForm.title}
+                        onChange={(e) =>
+                          setProgramForm((f) => ({ ...f, title: e.target.value }))
+                        }
+                        disabled={isPublished}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-desc">Mô tả</Label>
+                      <Textarea
+                        id="edit-desc"
+                        value={programForm.description}
+                        onChange={(e) =>
+                          setProgramForm((f) => ({ ...f, description: e.target.value }))
+                        }
+                        rows={3}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setEditingProgram(false);
+                          setProgramForm({ title: program.title, description: program.description ?? "" });
+                        }}
+                      >
+                        Hủy
+                      </Button>
+                      <Button onClick={handleSaveProgram} disabled={isSavingProgram}>
+                        {isSavingProgram && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Lưu
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="text-2xl font-bold mb-2">{program.title}</h2>
+                    {program.description && (
+                      <p className="text-muted-foreground mb-4">{program.description}</p>
+                    )}
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-4 w-4" />
+                        Tạo: {formatDateTime(program.createdAt)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <BookOpen className="h-4 w-4" />
+                        {lessons.length} bài học
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
               {isAdmin && !editingProgram && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditingProgram(true)}
-                >
+                <Button variant="outline" size="sm" onClick={() => setEditingProgram(true)}>
                   <Edit className="mr-2 h-4 w-4" />
                   Sửa
                 </Button>
               )}
             </div>
-          </CardHeader>
-          <CardContent>
-            {editingProgram ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Tiêu đề
-                  </label>
-                  <Input
-                    value={programForm.title}
-                    onChange={(e) =>
-                      setProgramForm((f) => ({ ...f, title: e.target.value }))
-                    }
-                    disabled={isPublished}
-                  />
-                  {isPublished && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Chương trình đã publish - không thể đổi tiêu đề
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Mô tả</label>
-                  <Textarea
-                    value={programForm.description}
-                    onChange={(e) =>
-                      setProgramForm((f) => ({
-                        ...f,
-                        description: e.target.value,
-                      }))
-                    }
-                    rows={4}
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingProgram(false);
-                      setProgramForm({
-                        title: program.title,
-                        description: program.description ?? "",
-                      });
-                    }}
-                  >
-                    Hủy
-                  </Button>
-                  <Button onClick={handleSaveProgram} disabled={isSavingProgram}>
-                    {isSavingProgram ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    Lưu
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3 text-sm">
-                <div>
-                  <span className="font-medium">Trạng thái: </span>
-                  <Badge
-                    variant={isPublished ? "default" : "secondary"}
-                    className="ml-1"
-                  >
-                    {isPublished ? "Đã publish" : "Bản nháp"}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="font-medium">Mô tả: </span>
-                  <span className="text-muted-foreground">
-                    {program.description || "—"}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-medium">Ngày tạo: </span>
-                  <span className="text-muted-foreground">
-                    {formatDateTime(program.createdAt)}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-medium">Số lesson: </span>
-                  <span className="text-muted-foreground">{lessons.length}</span>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
 
+        {/* Quick Actions */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-5 w-5 text-primary" />
+                Gán chương trình
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-3">
+                Gán chương trình cho nhân viên để họ có thể tham gia học.
+              </p>
+              <Button asChild variant="outline" className="w-full">
+                <Link href={`/admin/assignments?programId=${programId}`}>
+                  <Users className="mr-2 h-4 w-4" />
+                  Gán cho nhân viên
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary" />
+                Theo dõi tiến độ
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-3">
+                Xem báo cáo chi tiết về tiến độ học tập của nhân viên.
+              </p>
+              <Button asChild variant="outline" className="w-full">
+                <Link href={`/admin/reports?programId=${programId}`}>
+                  <BarChart3 className="mr-2 h-4 w-4" />
+                  Xem báo cáo
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Lessons Section */}
         <Card>
           <CardHeader>
-            <CardTitle>Hành động nhanh</CardTitle>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5" />
+                  Bài học ({lessons.length})
+                </CardTitle>
+                <CardDescription>
+                  Kéo thả để sắp xếp thứ tự. Mỗi bài có thể kèm bài kiểm tra.
+                </CardDescription>
+              </div>
+              {isAdmin && (
+                <Button onClick={openCreateLesson}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Thêm bài học
+                </Button>
+              )}
+            </div>
           </CardHeader>
-          <CardContent className="space-y-2">
-            <Button asChild variant="outline" className="w-full justify-start">
-              <Link href={`/admin/assignments?programId=${programId}`}>
-                <Plus className="mr-2 h-4 w-4" />
-                Gán cho nhân viên
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full justify-start">
-              <Link href={`/admin/reports?programId=${programId}`}>
-                <Award className="mr-2 h-4 w-4" />
-                Xem báo cáo
-              </Link>
-            </Button>
+          <CardContent>
+            {lessons.length === 0 ? (
+              <div className="py-12 text-center">
+                <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                <h3 className="text-lg font-medium mb-2">Chưa có bài học nào</h3>
+                <p className="text-muted-foreground mb-6">
+                  Thêm bài học đầu tiên để hoàn thiện chương trình đào tạo.
+                </p>
+                {isAdmin && (
+                  <Button onClick={openCreateLesson}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Thêm bài học đầu tiên
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {lessons.map((l, idx) => {
+                  const Icon = TYPE_ICONS[l.contentType];
+                  const colorClass = TYPE_COLORS[l.contentType];
+                  return (
+                    <div
+                      key={l.id}
+                      className={`
+                        flex items-center gap-3 rounded-lg border p-4 transition-all
+                        hover:shadow-sm
+                        ${draggedLesson === l.id ? "opacity-50 bg-muted" : ""}
+                      `}
+                    >
+                      {/* Drag handle */}
+                      {isAdmin && (
+                        <div className="cursor-grab text-muted-foreground">
+                          <GripVertical className="h-5 w-5" />
+                        </div>
+                      )}
+
+                      {/* Order controls */}
+                      {isAdmin && (
+                        <div className="flex flex-col">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveLesson(l, -1)}
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={idx === lessons.length - 1}
+                            onClick={() => handleMoveLesson(l, 1)}
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Order badge */}
+                      <Badge variant="outline" className="shrink-0">
+                        #{l.order}
+                      </Badge>
+
+                      {/* Type icon */}
+                      <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium truncate">{l.title}</h4>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{TYPE_LABELS[l.contentType]}</span>
+                          {l.fileMeta && (
+                            <span>{(l.fileMeta.size / 1024 / 1024).toFixed(1)} MB</span>
+                          )}
+                          {l.hasTest && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Award className="h-3 w-3 mr-1" />
+                              Có test
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      {isAdmin && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant={l.hasTest ? "secondary" : "outline"}
+                            size="sm"
+                            onClick={() => setTestEditorLesson(l)}
+                          >
+                            <Award className="mr-1 h-4 w-4" />
+                            {l.hasTest ? "Sửa test" : "Thêm test"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditLesson(l)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteLesson(l)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Bài học ({lessons.length})</CardTitle>
-              <CardDescription>
-                Sắp xếp thứ tự bằng nút ↑ ↓. Mỗi lesson có thể kèm bài test.
-              </CardDescription>
-            </div>
-            {isAdmin && (
-              <Button onClick={openCreateLesson}>
-                <Plus className="mr-2 h-4 w-4" />
-                Thêm lesson
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {lessons.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              Chưa có lesson. Bấm &ldquo;Thêm lesson&rdquo; để bắt đầu.
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {lessons.map((l, idx) => {
-                const Icon = TYPE_ICONS[l.contentType];
-                return (
-                  <div
-                    key={l.id}
-                    className="flex items-center gap-3 rounded-md border p-3"
-                  >
-                    {isAdmin && (
-                      <div className="flex flex-col gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={idx === 0}
-                          onClick={() => handleMoveLesson(l, -1)}
-                          title="Lên"
-                        >
-                          <ArrowUp className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={idx === lessons.length - 1}
-                          onClick={() => handleMoveLesson(l, 1)}
-                          title="Xuống"
-                        >
-                          <ArrowDown className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    )}
-                    <Badge variant="outline">#{l.order}</Badge>
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium">{l.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {TYPE_LABELS[l.contentType]}
-                        {l.fileMeta &&
-                          ` · ${(l.fileMeta.size / 1024 / 1024).toFixed(1)} MB`}
-                        {l.hasTest && " · có bài test"}
-                      </div>
-                    </div>
-                    {isAdmin && (
-                      <div className="flex gap-1">
-                        <Button
-                          variant={l.hasTest ? "secondary" : "outline"}
-                          size="sm"
-                          onClick={() => setTestEditorLesson(l)}
-                        >
-                          <Award className="mr-1 h-3 w-3" />
-                          {l.hasTest ? "Sửa test" : "Thêm test"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditLesson(l)}
-                          title="Sửa lesson"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteLesson(l)}
-                          title="Xóa"
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Lesson form dialog */}
-      <Dialog
-        open={Boolean(lessonForm)}
-        onOpenChange={(o) => !o && closeLessonForm()}
-      >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      {/* Lesson Form Dialog */}
+      <Dialog open={Boolean(lessonForm)} onOpenChange={(o) => !o && closeLessonForm()}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {lessonForm?.id ? "Sửa lesson" : "Thêm lesson"}
+              {lessonForm?.id ? "Sửa bài học" : "Thêm bài học mới"}
             </DialogTitle>
             <DialogDescription>
               {lessonForm?.id
                 ? `ID: ${lessonForm.id}`
-                : `Lưu trong programs/${programId}/lessons/`}
+                : `Thêm vào chương trình: ${program.title}`}
             </DialogDescription>
           </DialogHeader>
           {lessonForm && (
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Title */}
               <div>
-                <label className="mb-1 block text-sm font-medium">
+                <Label htmlFor="lesson-title">
                   Tiêu đề <span className="text-destructive">*</span>
-                </label>
+                </Label>
                 <Input
+                  id="lesson-title"
                   value={lessonForm.title}
                   onChange={(e) =>
-                    setLessonForm((f) =>
-                      f ? { ...f, title: e.target.value } : f
-                    )
+                    setLessonForm((f) => f ? { ...f, title: e.target.value } : f)
                   }
                   placeholder="VD: Giới thiệu về an toàn lao động"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              {/* Content Type */}
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Loại</label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={lessonForm.contentType}
-                    onChange={(e) =>
-                      setLessonForm((f) =>
-                        f
-                          ? {
-                              ...f,
-                              contentType: e.target.value as LessonContentType,
-                              fileKey: "",
-                              fileMeta: null,
+                  <Label>Loại nội dung</Label>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {(["text", "video", "pdf"] as LessonContentType[]).map((type) => {
+                      const Icon = TYPE_ICONS[type];
+                      const colorClass = TYPE_COLORS[type];
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() =>
+                            setLessonForm((f) =>
+                              f
+                                ? {
+                                    ...f,
+                                    contentType: type,
+                                    fileKey: "",
+                                    fileMeta: null,
+                                    selectedFile: null,
+                                  }
+                                : f
+                            )
+                          }
+                          className={`
+                            flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all
+                            ${lessonForm.contentType === type
+                              ? `border-primary ${colorClass}`
+                              : "border-border hover:border-primary/50"
                             }
-                          : f
-                      )
-                    }
-                  >
-                    <option value="text">Văn bản (rich text)</option>
-                    <option value="video">Video</option>
-                    <option value="pdf">PDF</option>
-                  </select>
+                          `}
+                        >
+                          <Icon className="h-6 w-6" />
+                          <span className="text-sm font-medium">{TYPE_LABELS[type]}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Thứ tự
-                  </label>
+                  <Label htmlFor="lesson-order">Thứ tự</Label>
                   <Input
+                    id="lesson-order"
                     type="number"
                     min={1}
                     value={lessonForm.order}
                     onChange={(e) =>
                       setLessonForm((f) =>
-                        f
-                          ? { ...f, order: parseInt(e.target.value || "1", 10) }
-                          : f
+                        f ? { ...f, order: parseInt(e.target.value || "1", 10) } : f
                       )
                     }
                   />
                 </div>
               </div>
 
+              {/* Content based on type */}
               {lessonForm.contentType === "text" ? (
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Nội dung
-                  </label>
-                  <RichTextEditor
-                    value={lessonForm.textContent}
-                    onChange={(value) =>
-                      setLessonForm((f) =>
-                        f ? { ...f, textContent: value } : f
-                      )
-                    }
-                    placeholder="Nhập nội dung bài học... (Copy nội dung từ file PDF và paste vào đây)"
-                  />
-                </div>
-              ) : lessonForm.contentType === "pdf" ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">
-                      File PDF
-                    </label>
-                    <div className="rounded-md border border-dashed p-4">
-                      {lessonForm.fileMeta ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-sm">
-                              <div className="font-medium">
-                                {lessonForm.fileMeta.fileName}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {(lessonForm.fileMeta.size / 1024 / 1024).toFixed(2)}{" "}
-                                MB · {lessonForm.fileMeta.mimeType}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 text-green-600">
-                              <CheckCircle2 className="h-4 w-4" />
-                              <span className="text-xs">Đã upload</span>
-                            </div>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              setLessonForm((f) =>
-                                f
-                                  ? {
-                                      ...f,
-                                      fileKey: "",
-                                      fileMeta: null,
-                                    }
-                                  : f
-                              )
-                            }
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Xóa file
-                          </Button>
-                        </div>
-                      ) : (
-                        <div>
-                          <input
-                            type="file"
-                            accept="application/pdf"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) handleFileSelect(f);
-                            }}
-                            disabled={lessonForm.isUploading}
-                            className="text-sm"
-                          />
-                          {lessonForm.isUploading && (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Đang upload...
-                            </p>
-                          )}
-                          {lessonForm.uploadError && (
-                            <p className="mt-2 text-xs text-destructive">
-                              {lessonForm.uploadError}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                    <p className="font-medium">Hướng dẫn:</p>
-                    <p className="mt-1 text-xs">
-                      Copy nội dung từ file PDF (Ctrl+A, Ctrl+C), sau đó tạo lesson
-                      loại <strong>Văn bản</strong> và paste vào ô nội dung.
-                    </p>
+                  <Label>Nội dung</Label>
+                  <div className="mt-2">
+                    <TiptapEditor
+                      value={lessonForm.textContent}
+                      onChange={(value) =>
+                        setLessonForm((f) => f ? { ...f, textContent: value } : f)
+                      }
+                      placeholder="Nhập nội dung bài học..."
+                    />
                   </div>
                 </div>
               ) : (
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    File video
-                  </label>
-                  <div className="rounded-md border border-dashed p-4">
+                  <Label>File {lessonForm.contentType === "video" ? "Video" : "PDF"}</Label>
+                  <div className="mt-2 rounded-lg border-2 border-dashed p-6 text-center">
                     {lessonForm.fileMeta ? (
                       <div className="flex items-center justify-between">
-                        <div className="text-sm">
-                          <div className="font-medium">
-                            {lessonForm.fileMeta.fileName}
+                        <div className="flex items-center gap-3">
+                          <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${TYPE_COLORS[lessonForm.contentType]}`}>
+                            {lessonForm.contentType === "video" ? (
+                              <Video className="h-6 w-6" />
+                            ) : (
+                              <FileType className="h-6 w-6" />
+                            )}
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {(lessonForm.fileMeta.size / 1024 / 1024).toFixed(2)}{" "}
-                            MB · {lessonForm.fileMeta.mimeType}
+                          <div className="text-left">
+                            <p className="font-medium">{lessonForm.fileMeta.fileName}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {(lessonForm.fileMeta.size / 1024 / 1024).toFixed(2)} MB
+                            </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 text-green-600">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span className="text-xs">Đã upload</span>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-5 w-5 text-green-500" />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setLessonForm((f) =>
+                                f ? { ...f, fileKey: "", fileMeta: null, selectedFile: null } : f
+                              )
+                            }
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ) : (
                       <div>
                         <input
                           type="file"
-                          accept="video/*"
+                          accept={lessonForm.contentType === "video" ? "video/*" : "application/pdf"}
                           onChange={(e) => {
                             const f = e.target.files?.[0];
                             if (f) handleFileSelect(f);
                           }}
                           disabled={lessonForm.isUploading}
-                          className="text-sm"
+                          className="hidden"
+                          id="file-upload"
                         />
-                        {lessonForm.isUploading && (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Đang upload...
-                          </p>
-                        )}
-                        {lessonForm.uploadError && (
-                          <p className="mt-2 text-xs text-destructive">
-                            {lessonForm.uploadError}
-                          </p>
-                        )}
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          File sẽ được upload trực tiếp tới R2 (hoặc local
-                          fallback khi dev). URL tạm thời sẽ được sinh tự động
-                          khi nhân viên xem.
-                        </p>
+                        <label htmlFor="file-upload" className="cursor-pointer">
+                          <div className="flex flex-col items-center gap-2">
+                            <div className={`h-12 w-12 rounded-full bg-muted flex items-center justify-center`}>
+                              {lessonForm.contentType === "video" ? (
+                                <Video className="h-6 w-6 text-muted-foreground" />
+                              ) : (
+                                <FileType className="h-6 w-6 text-muted-foreground" />
+                              )}
+                            </div>
+                            <p className="text-sm font-medium">
+                              {lessonForm.isUploading
+                                ? "Đang upload..."
+                                : "Click để chọn file"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {lessonForm.contentType === "video"
+                                ? "Hỗ trợ: MP4, MOV, WebM..."
+                                : "Hỗ trợ: PDF"}
+                            </p>
+                          </div>
+                        </label>
                       </div>
+                    )}
+                    {lessonForm.uploadError && (
+                      <p className="mt-2 text-sm text-destructive">{lessonForm.uploadError}</p>
                     )}
                   </div>
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={closeLessonForm}
-                  disabled={isSavingLesson}
-                >
+              {/* Actions */}
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={closeLessonForm} disabled={isSavingLesson}>
                   Hủy
                 </Button>
                 <Button
                   onClick={handleSaveLesson}
                   disabled={isSavingLesson || lessonForm.isUploading}
                 >
-                  {isSavingLesson ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-4 w-4" />
-                  )}
-                  {lessonForm.id ? "Cập nhật" : "Tạo"}
+                  {isSavingLesson && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {lessonForm.id ? "Cập nhật" : "Tạo bài học"}
                 </Button>
               </div>
             </div>
@@ -1087,6 +1070,7 @@ export default function AdminProgramDetailPage({
         </DialogContent>
       </Dialog>
 
+      {/* Test Editor Dialog */}
       {testEditorLesson && (
         <TestEditorDialog
           programId={programId}
@@ -1098,11 +1082,50 @@ export default function AdminProgramDetailPage({
           }}
         />
       )}
+
+      {/* Preview Dialog */}
+      <Dialog open={isPreviewMode} onOpenChange={(o) => setIsPreviewMode(o)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Xem trước chương trình</DialogTitle>
+            <DialogDescription>
+              Chế độ xem trước như nhân viên sẽ thấy
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="text-center py-8">
+              <h2 className="text-2xl font-bold mb-2">{program.title}</h2>
+              {program.description && <p className="text-muted-foreground">{program.description}</p>}
+              <Badge variant="success" className="mt-4">
+                {lessons.length} bài học
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              {lessons.map((l, idx) => {
+                const LessonIcon = TYPE_ICONS[l.contentType];
+                return (
+                  <div key={l.id} className="flex items-center gap-3 p-4 rounded-lg border">
+                    <Badge variant="outline">{idx + 1}</Badge>
+                    <LessonIcon className="h-5 w-5 text-muted-foreground" />
+                    <span className="flex-1">{l.title}</span>
+                    {l.hasTest && <Badge>Có test</Badge>}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setIsPreviewMode(false)}>
+                Đóng
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }
 
-// ─── Test Editor Dialog ──────────────────────────────────────
+// Test Editor Dialog
 function TestEditorDialog({
   programId,
   lesson,
@@ -1114,14 +1137,7 @@ function TestEditorDialog({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
-  const [questions, setQuestions] = useState<
-    {
-      question: string;
-      options: string[];
-      correctIndex: number;
-      point: number;
-    }[]
-  >([
+  const [questions, setQuestions] = useState([
     { question: "", options: ["", "", "", ""], correctIndex: 0, point: 10 },
   ]);
   const [passScore, setPassScore] = useState(70);
@@ -1132,15 +1148,12 @@ function TestEditorDialog({
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await testServiceGet(programId, lesson.id);
+        const res = await import("@/services/training").then((m) =>
+          m.testService.getAdmin(programId, lesson.id)
+        );
         if (res.success && res.data) {
           const data = res.data as {
-            questions: {
-              question: string;
-              options: string[];
-              correctIndex: number;
-              point: number;
-            }[];
+            questions: { question: string; options: string[]; correctIndex: number; point: number }[];
             passScore: number;
           };
           if (Array.isArray(data.questions) && data.questions.length > 0) {
@@ -1148,40 +1161,36 @@ function TestEditorDialog({
           }
           setPassScore(data.passScore ?? 70);
         }
-      } catch (e) {
-        // ignore - có thể chưa có test
+      } catch {
+        // ignore
       } finally {
         setIsLoading(false);
       }
     };
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId, lesson.id]);
 
-  const updateQuestion = (
-    idx: number,
-    field: keyof (typeof questions)[number],
-    value: string | number
-  ) => {
+  const updateQuestion = (idx: number, field: keyof typeof questions[number], value: string | number) => {
     setQuestions((qs) =>
       qs.map((q, i) => (i === idx ? { ...q, [field]: value } : q))
     );
   };
+
   const updateOption = (qIdx: number, optIdx: number, value: string) => {
     setQuestions((qs) =>
       qs.map((q, i) =>
-        i === qIdx
-          ? { ...q, options: q.options.map((o, j) => (j === optIdx ? value : o)) }
-          : q
+        i === qIdx ? { ...q, options: q.options.map((o, j) => (j === optIdx ? value : o)) } : q
       )
     );
   };
+
   const addQuestion = () => {
     setQuestions((qs) => [
       ...qs,
       { question: "", options: ["", "", "", ""], correctIndex: 0, point: 10 },
     ]);
   };
+
   const removeQuestion = (idx: number) => {
     setQuestions((qs) => qs.filter((_, i) => i !== idx));
   };
@@ -1196,10 +1205,6 @@ function TestEditorDialog({
         setError(`Câu hỏi #${i + 1}: thiếu nội dung`);
         return;
       }
-      if (q.options.length < 2) {
-        setError(`Câu hỏi #${i + 1}: cần ≥ 2 đáp án`);
-        return;
-      }
       if (q.options.some((o) => !o.trim())) {
         setError(`Câu hỏi #${i + 1}: đáp án không được trống`);
         return;
@@ -1208,10 +1213,9 @@ function TestEditorDialog({
     setIsSaving(true);
     setError(null);
     try {
-      const res = await testServiceUpsert(programId, lesson.id, {
-        questions,
-        passScore,
-      });
+      const res = await import("@/services/training").then((m) =>
+        m.testService.upsert(programId, lesson.id, { questions, passScore })
+      );
       if (res.success) {
         await onSaved();
       } else {
@@ -1228,87 +1232,61 @@ function TestEditorDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Bài test: {lesson.title}</DialogTitle>
+          <DialogTitle>Bài kiểm tra: {lesson.title}</DialogTitle>
           <DialogDescription>
-            Câu hỏi được lưu trong subcollection{" "}
-            <code>programs/{programId}/lessons/{lesson.id}/test</code>. Đáp án
-            đúng không hiển thị cho nhân viên.
+            Thiết lập câu hỏi và đáp án đúng. Nhân viên sẽ không thấy đáp án đúng.
           </DialogDescription>
         </DialogHeader>
         {isLoading ? (
-          <div className="py-4 text-center text-sm text-muted-foreground">
-            Đang tải...
-          </div>
+          <div className="py-8 text-center">Đang tải...</div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {error && (
               <Alert variant="destructive">
-                <AlertDescription>
-                  <code className="text-xs">{error}</code>
-                </AlertDescription>
+                <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
             {questions.map((q, qIdx) => (
-              <div key={qIdx} className="space-y-2 rounded-md border p-3">
+              <div key={qIdx} className="rounded-lg border p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">
-                    Câu hỏi #{qIdx + 1}
-                  </span>
+                  <span className="font-medium">Câu hỏi #{qIdx + 1}</span>
                   {questions.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeQuestion(qIdx)}
-                      title="Xóa câu hỏi"
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                    <Button variant="ghost" size="sm" onClick={() => removeQuestion(qIdx)}>
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
                 <Textarea
                   value={q.question}
-                  onChange={(e) =>
-                    updateQuestion(qIdx, "question", e.target.value)
-                  }
-                  placeholder="Nội dung câu hỏi..."
+                  onChange={(e) => updateQuestion(qIdx, "question", e.target.value)}
+                  placeholder="Nhập nội dung câu hỏi..."
                   rows={2}
                 />
-                <div className="grid gap-2">
+                <div className="space-y-2">
                   {q.options.map((opt, optIdx) => (
                     <div key={optIdx} className="flex items-center gap-2">
                       <input
                         type="radio"
-                        name={`correct-${qIdx}`}
                         checked={q.correctIndex === optIdx}
-                        onChange={() =>
-                          updateQuestion(qIdx, "correctIndex", optIdx)
-                        }
-                        className="mt-0.5"
+                        onChange={() => updateQuestion(qIdx, "correctIndex", optIdx)}
+                        className="shrink-0"
                       />
                       <Input
                         value={opt}
-                        onChange={(e) =>
-                          updateOption(qIdx, optIdx, e.target.value)
-                        }
+                        onChange={(e) => updateOption(qIdx, optIdx, e.target.value)}
                         placeholder={`Đáp án ${String.fromCharCode(65 + optIdx)}`}
                       />
                     </div>
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-xs">Điểm:</label>
+                  <Label className="text-sm">Điểm:</Label>
                   <Input
                     type="number"
                     min={1}
                     value={q.point}
-                    onChange={(e) =>
-                      updateQuestion(
-                        qIdx,
-                        "point",
-                        parseInt(e.target.value || "1", 10)
-                      )
-                    }
+                    onChange={(e) => updateQuestion(qIdx, "point", parseInt(e.target.value || "1", 10))}
                     className="w-20"
                   />
                 </div>
@@ -1320,30 +1298,27 @@ function TestEditorDialog({
               Thêm câu hỏi
             </Button>
 
-            <div className="flex items-center gap-2">
-              <label className="text-sm">Điểm đạt (%):</label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={passScore}
-                onChange={(e) =>
-                  setPassScore(parseInt(e.target.value || "0", 10))
-                }
-                className="w-24"
-              />
+            <div className="flex items-center gap-4 pt-4 border-t">
+              <div className="flex items-center gap-2">
+                <Label>Điểm đạt (%):</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={passScore}
+                  onChange={(e) => setPassScore(parseInt(e.target.value || "0", 10))}
+                  className="w-20"
+                />
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-4 border-t">
               <Button variant="outline" onClick={onClose} disabled={isSaving}>
                 Hủy
               </Button>
               <Button onClick={handleSave} disabled={isSaving}>
-                {isSaving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="mr-2 h-4 w-4" />
-                )}
+                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Save className="mr-2 h-4 w-4" />
                 Lưu bài test
               </Button>
             </div>
@@ -1352,17 +1327,4 @@ function TestEditorDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-// Local helpers để tránh vòng import
-import { testService as _testService } from "@/services/training";
-async function testServiceGet(programId: string, lessonId: string) {
-  return _testService.getAdmin(programId, lessonId);
-}
-async function testServiceUpsert(
-  programId: string,
-  lessonId: string,
-  body: { questions: { question: string; options: string[]; correctIndex: number; point: number }[]; passScore: number }
-) {
-  return _testService.upsert(programId, lessonId, body);
 }

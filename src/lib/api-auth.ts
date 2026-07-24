@@ -11,7 +11,9 @@ export interface AuthUser {
   email: string | null;
   displayName: string | null;
   role: UserRole;
+  managerId?: string; // ID của manager quản lý user này
   isAdmin: boolean;
+  isManager: boolean;
 }
 
 // In-memory cache cho user roles (30 giây)
@@ -51,16 +53,18 @@ export async function getAuthUser(
     let role: UserRole = "employee";
     let displayName: string | null = decoded.name ?? null;
     let email: string | null = decoded.email ?? null;
+    let managerId: string | undefined = undefined;
     try {
       const userSnap = await adminDb
         .collection("users")
         .doc(decoded.uid)
         .get();
       if (userSnap.exists) {
-        const data = userSnap.data() as { role?: UserRole; displayName?: string; email?: string };
+        const data = userSnap.data() as { role?: UserRole; displayName?: string; email?: string; managerId?: string };
         if (data.role) role = data.role;
         if (data.displayName) displayName = data.displayName;
         if (data.email) email = data.email;
+        if (data.managerId) managerId = data.managerId;
       }
     } catch {
       // ignore
@@ -70,7 +74,9 @@ export async function getAuthUser(
       email,
       displayName,
       role,
+      managerId,
       isAdmin: role === "admin",
+      isManager: role === "manager",
     };
     setCachedUser(decoded.uid, user);
     return user;
@@ -81,6 +87,14 @@ export async function getAuthUser(
 
 export function isAdmin(user: AuthUser | null): boolean {
   return user?.role === "admin";
+}
+
+export function isManager(user: AuthUser | null): boolean {
+  return user?.role === "manager";
+}
+
+export function isManagerOrAdmin(user: AuthUser | null): boolean {
+  return user?.role === "admin" || user?.role === "manager";
 }
 
 export function bad(message: string, status = 400) {

@@ -16,6 +16,15 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isManager() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager';
+    }
+
+    function isManagerOrAdmin() {
+      return isAdmin() || isManager();
+    }
+
     function isOwner(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -25,34 +34,40 @@ service cloud.firestore {
       allow read: if isSignedIn();
       // User tạo doc của chính mình khi đăng ký
       allow create: if isOwner(userId);
-      // User tự update các field cơ bản; admin được update tất cả
-      allow update: if isOwner(userId) || isAdmin();
+      // User tự update các field cơ bản; admin/manager được update
+      allow update: if isOwner(userId) || isAdmin() || isManager();
       // Chỉ admin mới được xóa user
       allow delete: if isAdmin();
 
       // Subcollections (progress, bookmarks, ...)
       match /{sub=**} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, write: if isOwner(userId) || isAdmin() || isManager();
       }
     }
 
     // ─── Programs (chương trình training) ───────────────────
     match /programs/{programId} {
       // Ai cũng đọc được chương trình đã publish; admin đọc tất cả
-      allow read: if resource.data.status == 'published' || isAdmin();
-      // Chỉ admin tạo / sửa / xóa
-      allow create, update, delete: if isAdmin();
+      allow read: if resource.data.status == 'published' || isAdmin() || isManager();
+      // Admin và Manager có thể tạo chương trình
+      // Sau khi tạo, cần Admin xét duyệt (publish)
+      allow create: if isManagerOrAdmin();
+      // Admin và Manager có thể sửa chương trình
+      allow update: if isManagerOrAdmin();
+      // Chỉ admin mới được xóa
+      allow delete: if isAdmin();
 
       // Subcollection: lessons
       match /lessons/{lessonId} {
         // Cho phép mọi người đã đăng nhập đọc (sẽ check assignment ở API layer)
         allow read: if isSignedIn();
-        allow write: if isAdmin();
+        // Admin và Manager có thể tạo/sửa lesson
+        allow write: if isManagerOrAdmin();
 
         // Subcollection: test (mỗi lesson 1 test)
         match /test/{testId} {
           allow read: if isSignedIn();
-          allow write: if isAdmin();
+          allow write: if isManagerOrAdmin();
         }
       }
     }
@@ -61,23 +76,25 @@ service cloud.firestore {
     // Document id: `${userId}_${programId}`
     match /assignments/{assignId} {
       allow read: if isSignedIn() &&
-        (isAdmin() || resource.data.userId == request.auth.uid);
-      // Chỉ admin được tạo / sửa / xóa
-      allow create, update, delete: if isAdmin();
+        (isAdmin() || isManager() || resource.data.userId == request.auth.uid);
+      // Admin và Manager có thể gán chương trình
+      allow create, update: if isAdmin() || isManager();
+      // Chỉ admin mới được xóa assignment
+      allow delete: if isAdmin();
     }
 
     // ─── Progress (tiến độ học) ────────────────────────────
     // Doc id: `${userId}_${programId}`; subcollection: lessons
     match /progress/{progId} {
       allow read: if isSignedIn() &&
-        (isAdmin() || resource.data.userId == request.auth.uid);
-      // Employee tự ghi progress của mình; admin ghi tất cả
-      allow create, update: if isAdmin() ||
+        (isAdmin() || isManager() || resource.data.userId == request.auth.uid);
+      // Employee tự ghi progress của mình; admin/manager ghi tất cả
+      allow create, update: if isAdmin() || isManager() ||
         (isSignedIn() && request.resource.data.userId == request.auth.uid);
       allow delete: if isAdmin();
 
       match /lessons/{lessonId} {
-        allow read, write: if isAdmin() ||
+        allow read, write: if isAdmin() || isManager() ||
           (isSignedIn() && get(/databases/$(database)/documents/progress/$(progId)).data.userId == request.auth.uid);
       }
     }
@@ -113,20 +130,20 @@ service cloud.firestore {
 
     // ─── Certificates ──────────────────────────────────────
     match /certificates/{certId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isManager();
       allow create: if isAdmin();
       allow update, delete: if isAdmin();
     }
 
     // ─── Progress ──────────────────────────────────────────
     match /progress/{progressId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow write: if isOwner(request.resource.data.userId) || isAdmin();
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isManager();
+      allow write: if isOwner(request.resource.data.userId) || isAdmin() || isManager();
     }
 
     // ─── Quiz attempts ─────────────────────────────────────
     match /quizAttempts/{attemptId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isManager();
       allow create: if isSignedIn()
                     && isOwner(request.resource.data.userId);
       allow update, delete: if isAdmin();
@@ -134,8 +151,8 @@ service cloud.firestore {
 
     // ─── Notifications ─────────────────────────────────────
     match /notifications/{notifId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow write: if isAdmin();
+      allow read: if isOwner(resource.data.userId) || isAdmin() || isManager();
+      allow write: if isAdmin() || isManager();
     }
 
     // ─── AI knowledge (chatbot) ────────────────────────────

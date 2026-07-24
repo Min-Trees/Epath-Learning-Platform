@@ -10,9 +10,11 @@ export interface Program {
   createdAt: Date;
   updatedAt?: Date;
   publishedAt?: Date;
+  // Các role được phép xem program này (nếu không có thì ai cũng xem được sau khi publish)
+  allowedRoles?: string[];
 }
 
-// ─── Lesson (Bài học) ────────────────────────────────────────
+// ─── Lesson (Bài học) ───────────────────────────────────────
 export type LessonContentType = "text" | "video" | "pdf";
 
 export interface LessonFileMeta {
@@ -32,6 +34,8 @@ export interface Lesson {
   fileKey?: string;
   fileMeta?: LessonFileMeta;
   hasTest: boolean;
+  // Các role được phép xem lesson này (nếu không có thì kế thừa từ program)
+  allowedRoles?: string[];
   createdAt: Date;
   updatedAt?: Date;
 }
@@ -168,7 +172,7 @@ export interface UserReportSummary {
   }[];
 }
 
-// ─── Upload (R2) ─────────────────────────────────────────────
+// ─── Upload (S3) ─────────────────────────────────────────────
 export interface PresignUploadRequest {
   fileName: string;
   mimeType: string;

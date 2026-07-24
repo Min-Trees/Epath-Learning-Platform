@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 
 /**
  * GET /api/programs
@@ -17,9 +17,9 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status") ?? undefined;
 
     let ref: FirebaseFirestore.Query = adminDb.collection("programs");
-    if (isAdmin(me) && status) {
+    if ((isAdmin(me) || me.role === "manager") && status) {
       ref = ref.where("status", "==", status);
-    } else if (!isAdmin(me)) {
+    } else if (!isAdmin(me) && me.role !== "manager") {
       ref = ref.where("status", "==", "published");
     }
     ref = ref.orderBy("createdAt", "desc").limit(200);
@@ -36,13 +36,13 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/programs
  *  Body: { title, description }
- *  -> Tạo chương trình ở trạng thái draft (chỉ admin).
+ *  -> Tạo chương trình ở trạng thái draft (admin/manager).
  */
 export async function POST(req: NextRequest) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden - chỉ admin/manager", 403);
 
     const body = (await req.json().catch(() => ({}))) as {
       title?: string;

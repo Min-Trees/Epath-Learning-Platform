@@ -55,7 +55,7 @@ export default function AdminCoursesPage() {
     <PageContainer
       title="Quản lý khóa học"
       description="Chọn khóa học để quản lý bài học, tài liệu, quiz"
-      breadcrumbs={[{ label: "Quản trị", href: "/admin" }, { label: "Khóa học" }]}
+      showBreadcrumb={false}
     >
       <div className="mb-4 flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>

@@ -1,0 +1,23 @@
+fix: upload video large files via s3-proxy (bypass CORS) + multipart upload
+
+Upload flow:
+- Add /api/uploads/s3-proxy route for server-side proxy upload via @aws-sdk/lib-storage Upload (multpart, 5MB chunks, 4 parallel parts)
+- Add src/lib/upload.ts helper (performUpload) with 3 modes: direct-s3, proxy, local-fallback + auto-fallback
+- Update /api/uploads/presign to return proxyUrl when S3 configured, increase expiresIn to 2h for large files
+- Update src/lib/xhr-upload.ts: add withCredentials=false, improve error message
+- Update src/app/api/uploads/local-receive: add OPTIONS preflight + CORS headers
+
+Bug fixes:
+- Fix src/lib/api-client.ts self-import conflict
+- Fix src/lib/api-client.ts getIdToken boolean | null type
+- Fix src/app/api/programs/[programId]/lessons/[lessonId]/route.ts AuthUser type
+- Fix src/app/api/programs/[programId]/lessons/route.ts AuthUser type
+- Fix src/app/api/programs/new/page.tsx setStep type cast
+- Fix src/app/admin/users/page.tsx duplicate User identifier (lucide icon vs type)
+- Fix src/components/tiptap-editor.tsx setContent API
+
+Cleanup:
+- Replace src/lib/r2.ts with src/lib/s3.ts (S3-compatible storage, alias R2 for backward compat)
+- Add docs/CORS_HELP.md for bucket CORS configuration guide
+- Add src/lib/xhr-upload.ts for chunked upload with retry
+- Add src/components/tiptap-editor.tsx placeholder

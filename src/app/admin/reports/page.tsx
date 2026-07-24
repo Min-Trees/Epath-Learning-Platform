@@ -110,10 +110,7 @@ function AdminReportsPageInner() {
     <PageContainer
       title="Báo cáo tiến độ"
       description="Tổng quan theo chương trình và nhân viên"
-      breadcrumbs={[
-        { label: "Quản trị", href: "/admin" },
-        { label: "Báo cáo" },
-      ]}
+      showBreadcrumb={false}
     >
       {reportError && (
         <Alert variant="destructive" className="mb-4">

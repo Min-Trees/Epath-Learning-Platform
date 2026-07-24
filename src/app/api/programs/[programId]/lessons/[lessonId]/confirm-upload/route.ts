@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 
 /**
  * POST /api/programs/:programId/lessons/:lessonId/confirm-upload
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden - chỉ admin và manager", 403);
     const { programId, lessonId } = await ctx.params;
 
     const body = (await req.json().catch(() => ({}))) as {

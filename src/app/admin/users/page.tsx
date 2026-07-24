@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useTransition } from "react";
+import { useState, useMemo, useCallback, useTransition, useEffect } from "react";
 import {
   Search,
   MoreHorizontal,
@@ -12,6 +12,10 @@ import {
   Shield,
   Plus,
   UserPlus,
+  LucideUser,
+  Users,
+  Building2,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +47,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { PageContainer } from "@/components/layout";
 import { useAuth, useCollection, useDebouncedValue, useDocMutation } from "@/hooks";
 import { doc, serverTimestamp } from "firebase/firestore";
@@ -50,6 +55,7 @@ import { db } from "@/lib/firebase";
 import { apiPost } from "@/lib/api-client";
 import { getInitials } from "@/utils";
 import type { User, UserRole } from "@/types";
+import type { Program } from "@/types/training";
 
 interface CreateUserResponse {
   uid: string;
@@ -61,13 +67,15 @@ interface CreateUserResponse {
 
 const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Quản trị",
+  manager: "Quản lý",
   hr: "Nhân sự",
   trainer: "Giảng viên",
   employee: "Nhân viên",
 };
 
-const ROLE_BADGE: Record<UserRole, "destructive" | "info" | "warning" | "secondary"> = {
+const ROLE_BADGE: Record<UserRole, "destructive" | "info" | "warning" | "secondary" | "default"> = {
   admin: "destructive",
+  manager: "default",
   hr: "info",
   trainer: "warning",
   employee: "secondary",
@@ -77,17 +85,20 @@ export default function AdminUsersPage() {
   const { user: currentUser } = useAuth();
   const [isPending, startTransition] = useTransition();
 
-  // UI state (không liên quan đến data)
+  // UI state
   const [searchInput, setSearchInput] = useState("");
   const [selectedRole, setSelectedRole] = useState<UserRole | "all">("all");
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Debounce search 250ms — tránh filter mỗi keystroke gây re-render
+  // Filter by manager (for manager role)
+  const [showOnlyMyTeam, setShowOnlyMyTeam] = useState(true);
+
+  // Debounce search
   const debouncedSearch = useDebouncedValue(searchInput, 250);
 
-  // React Query: fetch users từ cache, dedupe, không flash khi chuyển tab
+  // React Query: fetch users
   const {
     data: users = [],
     isLoading,
@@ -95,19 +106,81 @@ export default function AdminUsersPage() {
     refetch,
   } = useCollection<User & { id: string }>("users");
 
-  const filteredUsers = useMemo(() => {
-    const q = debouncedSearch.toLowerCase();
-    return users.filter((u) => {
-      const matchSearch =
-        q === "" ||
-        (u.displayName ?? "").toLowerCase().includes(q) ||
-        (u.email ?? "").toLowerCase().includes(q);
-      const matchRole = selectedRole === "all" || u.role === selectedRole;
-      return matchSearch && matchRole;
-    });
-  }, [users, debouncedSearch, selectedRole]);
+  // Get list of managers for dropdown
+  const managers = useMemo(() => {
+    return users.filter((u) => u.role === "manager");
+  }, [users]);
 
-  // Mutation: update role — optimistic update
+  // Get manager's name by ID
+  const getManagerName = useCallback((managerId?: string) => {
+    if (!managerId) return "Không có";
+    const manager = managers.find((m) => m.id === managerId);
+    return manager?.displayName ?? managerId.slice(0, 8) + "...";
+  }, [managers]);
+
+  // Filter users based on role
+  const isAdmin = currentUser?.role === "admin";
+  const isManager = currentUser?.role === "manager";
+  const currentUserId = currentUser?.id;
+
+  const filteredUsers = useMemo(() => {
+    let result = users;
+
+    // Manager chỉ thấy nhân viên của họ (hoặc chính họ)
+    if (isManager) {
+      if (showOnlyMyTeam) {
+        result = result.filter((u) => 
+          u.id === currentUserId || u.managerId === currentUserId
+        );
+      }
+    }
+
+    // Filter by search
+    const q = debouncedSearch.toLowerCase();
+    if (q) {
+      result = result.filter((u) => {
+        const matchSearch =
+          (u.displayName ?? "").toLowerCase().includes(q) ||
+          (u.email ?? "").toLowerCase().includes(q);
+        return matchSearch;
+      });
+    }
+
+    // Filter by role (admin thấy tất cả, manager chỉ thấy employee)
+    if (isAdmin && selectedRole !== "all") {
+      result = result.filter((u) => u.role === selectedRole);
+    } else if (isManager) {
+      // Manager chỉ thấy employee hoặc chính họ
+      if (selectedRole === "employee") {
+        result = result.filter((u) => u.role === "employee");
+      } else if (selectedRole === "all") {
+        result = result.filter((u) => u.role === "employee" || u.id === currentUserId);
+      }
+    } else if (selectedRole !== "all") {
+      result = result.filter((u) => u.role === selectedRole);
+    }
+
+    return result;
+  }, [users, debouncedSearch, selectedRole, isAdmin, isManager, showOnlyMyTeam, currentUserId]);
+
+  // Stats
+  const stats = useMemo(() => {
+    if (isManager) {
+      const myEmployees = users.filter((u) => u.managerId === currentUserId);
+      return {
+        total: myEmployees.length,
+        active: myEmployees.filter((u) => u.isActive).length,
+        inactive: myEmployees.filter((u) => !u.isActive).length,
+      };
+    }
+    return {
+      total: users.filter((u) => u.role === "employee").length,
+      active: users.filter((u) => u.role === "employee" && u.isActive).length,
+      inactive: users.filter((u) => u.role === "employee" && !u.isActive).length,
+    };
+  }, [users, isManager, currentUserId]);
+
+  // Mutation: update role
   const changeRole = useDocMutation<
     { target: User; role: UserRole },
     void
@@ -123,7 +196,7 @@ export default function AdminUsersPage() {
     invalidate: ["users"],
   });
 
-  // Mutation: toggle active — optimistic
+  // Mutation: toggle active
   const toggleActive = useDocMutation<{ target: User }, void>({
     mutationFn: async ({ target }) => {
       const newActive = !target.isActive;
@@ -136,7 +209,7 @@ export default function AdminUsersPage() {
     invalidate: ["users"],
   });
 
-  // Mutation: delete — optimistic
+  // Mutation: delete
   const deleteUser = useDocMutation<{ target: User }, void>({
     mutationFn: async ({ target }) => {
       const { deleteDoc } = await import("firebase/firestore");
@@ -147,40 +220,66 @@ export default function AdminUsersPage() {
 
   const handleChangeRole = useCallback(
     (target: User, role: UserRole) => {
-      if (!currentUser || currentUser.role !== "admin") {
-        setError("Chỉ admin mới có quyền.");
+      if (!currentUser) return;
+      
+      // Admin có thể đổi bất kỳ role nào
+      // Manager chỉ có thể đổi role của nhân viên thuộc quyền quản lý
+      if (!isAdmin && !isManager) {
+        setError("Bạn không có quyền thay đổi vai trò.");
         return;
       }
-      if (target.id === currentUser.id && role !== "admin") {
-        setError("Không thể tự hạ quyền admin của chính mình.");
+      
+      if (isManager && target.managerId !== currentUserId) {
+        setError("Bạn chỉ có thể thay đổi vai trò của nhân viên thuộc quyền quản lý của bạn.");
         return;
       }
+      
+      if (target.id === currentUser.id && role !== "admin" && role !== "manager") {
+        setError("Không thể tự hạ vai trò của chính mình.");
+        return;
+      }
+      
+      // Manager không thể tạo admin hoặc manager khác
+      if (isManager && (role === "admin" || role === "manager")) {
+        setError("Bạn không có quyền tạo Admin hoặc Manager khác.");
+        return;
+      }
+      
       setActionId(target.id);
       setError(null);
       changeRole.mutate(
         { target, role },
         {
           onSuccess: () => {
-            setSuccess(`Đã đổi quyền "${target.displayName}" → ${ROLE_LABELS[role]}.`);
+            setSuccess(`Đã đổi vai trò "${target.displayName}" → ${ROLE_LABELS[role]}.`);
           },
           onError: (e) => setError(e instanceof Error ? e.message : String(e)),
           onSettled: () => setActionId(null),
         }
       );
     },
-    [currentUser, changeRole]
+    [currentUser, isAdmin, isManager, currentUserId, changeRole]
   );
 
   const handleToggleActive = useCallback(
     (target: User) => {
-      if (!currentUser || currentUser.role !== "admin") {
-        setError("Chỉ admin mới có quyền.");
+      if (!currentUser) return;
+      
+      if (!isAdmin && !isManager) {
+        setError("Bạn không có quyền.");
         return;
       }
+      
+      if (isManager && target.managerId !== currentUserId) {
+        setError("Bạn chỉ có thể thay đổi trạng thái của nhân viên thuộc quyền quản lý của bạn.");
+        return;
+      }
+      
       if (target.id === currentUser.id) {
-        setError("Không thể tự vô hiệu hóa tài khoản admin.");
+        setError("Không thể tự vô hiệu hóa tài khoản của chính mình.");
         return;
       }
+      
       setActionId(target.id);
       setError(null);
       toggleActive.mutate(
@@ -197,19 +296,23 @@ export default function AdminUsersPage() {
         }
       );
     },
-    [currentUser, toggleActive]
+    [currentUser, isAdmin, isManager, currentUserId, toggleActive]
   );
 
   const handleDeleteUser = useCallback(
     (target: User) => {
-      if (!currentUser || currentUser.role !== "admin") {
-        setError("Chỉ admin mới có quyền.");
+      if (!currentUser) return;
+      
+      if (!isAdmin) {
+        setError("Chỉ Admin mới có quyền xóa người dùng.");
         return;
       }
+      
       if (target.id === currentUser.id) {
-        setError("Không thể tự xóa tài khoản admin.");
+        setError("Không thể tự xóa tài khoản của chính mình.");
         return;
       }
+      
       if (!window.confirm(`Xóa người dùng "${target.displayName}" (${target.email})?\nKhông thể khôi phục.`)) return;
       setActionId(target.id);
       setError(null);
@@ -222,7 +325,7 @@ export default function AdminUsersPage() {
         }
       );
     },
-    [currentUser, deleteUser]
+    [currentUser, isAdmin, deleteUser]
   );
 
   // Create dialog state
@@ -233,9 +336,46 @@ export default function AdminUsersPage() {
     displayName: "",
     role: "employee" as UserRole,
     department: "",
+    managerId: "" as string,
   });
   const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
+
+  // Programs for assignment
+  const [availablePrograms, setAvailablePrograms] = useState<Program[]>([]);
+  const [selectedProgramIds, setSelectedProgramIds] = useState<Set<string>>(new Set());
+
+  // Fetch programs when dialog opens
+  useEffect(() => {
+    if (!createOpen) return;
+    const fetchPrograms = async () => {
+      try {
+        const res = await fetch("/api/programs", {
+          headers: {
+            Authorization: `Bearer ${await (await import("@/lib/firebase")).auth.currentUser?.getIdToken()}`,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.data?.items) {
+            setAvailablePrograms(
+              (data.data.items as Program[]).filter((p) => p.status === "published")
+            );
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void fetchPrograms();
+  }, [createOpen]);
+
+  // Set default manager for manager role
+  useEffect(() => {
+    if (isManager && !createForm.managerId) {
+      setCreateForm((f) => ({ ...f, managerId: currentUserId ?? "" }));
+    }
+  }, [isManager, createForm.managerId, currentUserId]);
 
   const resetCreateForm = useCallback(() => {
     setCreateForm({
@@ -244,9 +384,11 @@ export default function AdminUsersPage() {
       displayName: "",
       role: "employee",
       department: "",
+      managerId: isManager ? (currentUserId ?? "") : "",
     });
     setCreateError(null);
-  }, []);
+    setSelectedProgramIds(new Set());
+  }, [isManager, currentUserId]);
 
   const openCreate = useCallback(() => {
     resetCreateForm();
@@ -256,6 +398,7 @@ export default function AdminUsersPage() {
   const closeCreate = useCallback(() => {
     setCreateOpen(false);
     setCreateError(null);
+    setSelectedProgramIds(new Set());
   }, []);
 
   const handleCreateUser = useCallback(async () => {
@@ -263,6 +406,7 @@ export default function AdminUsersPage() {
     const email = createForm.email.trim().toLowerCase();
     const password = createForm.password;
     const displayName = createForm.displayName.trim();
+    
     if (!email || !email.includes("@")) {
       setCreateError("Email không hợp lệ.");
       return;
@@ -275,6 +419,19 @@ export default function AdminUsersPage() {
       setCreateError("Tên hiển thị không được để trống.");
       return;
     }
+    
+    // Manager chỉ có thể tạo employee
+    if (isManager && createForm.role !== "employee") {
+      setCreateError("Bạn chỉ có thể tạo tài khoản Nhân viên.");
+      return;
+    }
+    
+    // Manager phải chọn manager quản lý
+    if (isManager && !createForm.managerId) {
+      setCreateError("Phải chọn người quản lý cho nhân viên.");
+      return;
+    }
+    
     setCreateLoading(true);
     try {
       const res = await apiPost<CreateUserResponse>("/api/admin/users", {
@@ -283,6 +440,8 @@ export default function AdminUsersPage() {
         displayName,
         role: createForm.role,
         department: createForm.department.trim() || undefined,
+        managerId: createForm.managerId || undefined,
+        assignedProgramIds: Array.from(selectedProgramIds),
       });
       if (!res.success || !res.data) {
         throw new Error(res.error ?? "Tạo người dùng thất bại");
@@ -291,14 +450,13 @@ export default function AdminUsersPage() {
         `Đã tạo người dùng "${res.data.displayName}" (${res.data.email}).`
       );
       closeCreate();
-      // Refresh ngay để thấy user mới
       void refetch();
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : String(e));
     } finally {
       setCreateLoading(false);
     }
-  }, [createForm, closeCreate, refetch]);
+  }, [createForm, closeCreate, refetch, selectedProgramIds, isManager]);
 
   const handleRefresh = useCallback(() => {
     startTransition(() => {
@@ -306,20 +464,27 @@ export default function AdminUsersPage() {
     });
   }, [refetch]);
 
-  const isAdmin = currentUser?.role === "admin";
   const showLoading = isLoading && users.length === 0;
+
+  // Can user perform actions on this target?
+  const canManage = useCallback((target: User) => {
+    if (isAdmin) return true;
+    if (isManager && target.managerId === currentUserId) return true;
+    return false;
+  }, [isAdmin, isManager, currentUserId]);
 
   return (
     <PageContainer
-      title="Quản lý người dùng"
-      description="Quản lý tài khoản và phân quyền người dùng"
-      breadcrumbs={[{ label: "Quản trị", href: "/admin" }, { label: "Người dùng" }]}
+      title={isManager ? "Quản lý nhân viên" : "Quản lý người dùng"}
+      description={isManager ? "Quản lý và theo dõi nhân viên của bạn" : "Quản lý tài khoản và phân quyền người dùng"}
+      breadcrumbs={[{ label: isManager ? "Nhân viên" : "Người dùng" }]}
+      showBreadcrumb={false}
       actions={
         <div className="flex gap-2">
-          {isAdmin && (
+          {(isAdmin || isManager) && (
             <Button onClick={openCreate}>
               <UserPlus className="mr-2 h-4 w-4" />
-              Tạo người dùng
+              {isManager ? "Thêm nhân viên" : "Tạo người dùng"}
             </Button>
           )}
           <Button
@@ -348,12 +513,58 @@ export default function AdminUsersPage() {
         </Alert>
       )}
 
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-3 mb-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {isManager ? "Nhân viên của tôi" : "Tổng nhân viên"}
+                </p>
+                <p className="text-3xl font-bold">{stats.total}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <Users className="h-6 w-6 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Đang hoạt động</p>
+                <p className="text-3xl font-bold text-green-600">{stats.active}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <LucideUser className="h-6 w-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Không hoạt động</p>
+                <p className="text-3xl font-bold text-muted-foreground">{stats.inactive}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                <LucideUser className="h-6 w-6 text-muted-foreground" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Tìm kiếm người dùng..."
+            placeholder={isManager ? "Tìm nhân viên..." : "Tìm người dùng..."}
             className="pl-9"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
@@ -361,21 +572,43 @@ export default function AdminUsersPage() {
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          {(["all", "admin", "hr", "trainer", "employee"] as const).map(
-            (role) => (
+          {isManager ? (
+            <>
               <Button
-                key={role}
-                variant={selectedRole === role ? "default" : "outline"}
+                variant={showOnlyMyTeam ? "default" : "outline"}
                 size="sm"
-                onClick={() => setSelectedRole(role)}
+                onClick={() => setShowOnlyMyTeam(true)}
               >
-                {role === "all" ? "Tất cả" : ROLE_LABELS[role]}
+                <Users className="mr-1 h-4 w-4" />
+                Nhân viên của tôi
               </Button>
+              <Button
+                variant={!showOnlyMyTeam ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowOnlyMyTeam(false)}
+              >
+                <Filter className="mr-1 h-4 w-4" />
+                Tất cả
+              </Button>
+            </>
+          ) : (
+            (["all", "admin", "manager", "hr", "trainer", "employee"] as const).map(
+              (role) => (
+                <Button
+                  key={role}
+                  variant={selectedRole === role ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedRole(role)}
+                >
+                  {role === "all" ? "Tất cả" : ROLE_LABELS[role]}
+                </Button>
+              )
             )
           )}
         </div>
       </div>
 
+      {/* User Table */}
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -383,8 +616,8 @@ export default function AdminUsersPage() {
               <TableRow>
                 <TableHead>Người dùng</TableHead>
                 <TableHead>Vai trò</TableHead>
+                {isAdmin && <TableHead>Quản lý</TableHead>}
                 <TableHead>Phòng ban</TableHead>
-                <TableHead>Khóa học</TableHead>
                 <TableHead>Trạng thái</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
@@ -402,21 +635,11 @@ export default function AdminUsersPage() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-6 w-20" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-24" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-16" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-6 w-16" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-8 w-8" />
-                    </TableCell>
+                    <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                    {isAdmin && <TableCell><Skeleton className="h-4 w-24" /></TableCell>}
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-8 w-8" /></TableCell>
                   </TableRow>
                 ))
               ) : filteredUsers.length === 0 ? (
@@ -424,22 +647,22 @@ export default function AdminUsersPage() {
                   <TableCell colSpan={6} className="text-center py-8">
                     {users.length === 0
                       ? "Chưa có người dùng nào."
-                      : "Không tìm thấy người dùng phù hợp."}
+                      : isManager && showOnlyMyTeam
+                        ? "Bạn chưa có nhân viên nào."
+                        : "Không tìm thấy người dùng phù hợp."}
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredUsers.map((u) => {
                   const isSelf = u.id === currentUser?.id;
                   const busy = actionId === u.id;
+                  const canAct = canManage(u);
                   return (
                     <TableRow key={u.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage
-                              src={u.photoURL}
-                              alt={u.displayName}
-                            />
+                            <AvatarImage src={u.photoURL} alt={u.displayName} />
                             <AvatarFallback>
                               {getInitials(u.displayName ?? u.email ?? "U")}
                             </AvatarFallback>
@@ -453,9 +676,7 @@ export default function AdminUsersPage() {
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground">
-                              {u.email}
-                            </p>
+                            <p className="text-sm text-muted-foreground">{u.email}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -464,18 +685,21 @@ export default function AdminUsersPage() {
                           {ROLE_LABELS[u.role] ?? u.role}
                         </Badge>
                       </TableCell>
+                      {isAdmin && (
+                        <TableCell className="text-muted-foreground">
+                          {u.managerId ? (
+                            <Badge variant="outline">{getManagerName(u.managerId)}</Badge>
+                          ) : (
+                            <span className="text-sm">-</span>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell className="text-muted-foreground">
                         {u.department || "-"}
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">
-                          {(u.completedCourses ?? []).length}/
-                          {(u.enrolledCourses ?? []).length}
-                        </span>
-                      </TableCell>
-                      <TableCell>
                         <Badge variant={u.isActive ? "success" : "secondary"}>
-                          {u.isActive ? "Hoạt động" : "Không hoạt động"}
+                          {u.isActive ? "Hoạt động" : "Khóa"}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -484,7 +708,7 @@ export default function AdminUsersPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              disabled={!isAdmin || busy}
+                              disabled={!canAct || busy}
                             >
                               {busy ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -494,39 +718,49 @@ export default function AdminUsersPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {(["admin", "hr", "trainer", "employee"] as const)
-                              .filter((r) => r !== u.role)
-                              .map((r) => (
-                                <DropdownMenuItem
-                                  key={r}
-                                  onClick={() => handleChangeRole(u, r)}
-                                >
-                                  <Shield className="mr-2 h-4 w-4" />
-                                  Đổi thành {ROLE_LABELS[r]}
-                                </DropdownMenuItem>
-                              ))}
-                            <DropdownMenuItem
-                              onClick={() => handleToggleActive(u)}
-                            >
+                            {isAdmin && (
+                              <>
+                                {(["admin", "manager", "hr", "trainer", "employee"] as const)
+                                  .filter((r) => r !== u.role)
+                                  .map((r) => (
+                                    <DropdownMenuItem
+                                      key={r}
+                                      onClick={() => handleChangeRole(u, r)}
+                                    >
+                                      <Shield className="mr-2 h-4 w-4" />
+                                      Đổi thành {ROLE_LABELS[r]}
+                                    </DropdownMenuItem>
+                                  ))}
+                              </>
+                            )}
+                            {isManager && u.role === "employee" && (
+                              <DropdownMenuItem
+                                onClick={() => handleChangeRole(u, "trainer")}
+                              >
+                                <Shield className="mr-2 h-4 w-4" />
+                                Nâng thành Giảng viên
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => handleToggleActive(u)}>
                               <Edit className="mr-2 h-4 w-4" />
-                              {u.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+                              {u.isActive ? "Khóa tài khoản" : "Mở khóa"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() =>
-                                (window.location.href = `mailto:${u.email}`)
-                              }
+                              onClick={() => (window.location.href = `mailto:${u.email}`)}
                             >
                               <Mail className="mr-2 h-4 w-4" />
                               Gửi email
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDeleteUser(u)}
-                              disabled={isSelf}
-                              className="text-destructive"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Xóa
-                            </DropdownMenuItem>
+                            {isAdmin && (
+                              <DropdownMenuItem
+                                onClick={() => handleDeleteUser(u)}
+                                disabled={isSelf}
+                                className="text-destructive"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Xóa
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -540,23 +774,21 @@ export default function AdminUsersPage() {
       </Card>
 
       {/* Dialog tạo người dùng mới */}
-      <Dialog
-        open={createOpen}
-        onOpenChange={(o) => !o && closeCreate()}
-      >
+      <Dialog open={createOpen} onOpenChange={(o) => !o && closeCreate()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-4 w-4" />
-              Tạo người dùng mới
+              {isManager ? "Thêm nhân viên mới" : "Tạo người dùng mới"}
             </DialogTitle>
             <DialogDescription>
-              Tạo tài khoản mới trong Firebase Auth và hồ sơ Firestore.
-              Người dùng có thể đăng nhập ngay bằng email + mật khẩu.
+              {isManager
+                ? "Tạo tài khoản nhân viên mới. Nhân viên sẽ được gán quản lý bởi bạn."
+                : "Tạo tài khoản mới trong Firebase Auth và hồ sơ Firestore."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="grid gap-1.5">
               <Label htmlFor="cu-email">Email *</Label>
               <Input
@@ -584,9 +816,6 @@ export default function AdminUsersPage() {
                 disabled={createLoading}
                 autoComplete="new-password"
               />
-              <p className="text-xs text-muted-foreground">
-                User có thể đổi mật khẩu sau khi đăng nhập.
-              </p>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="cu-name">Tên hiển thị *</Label>
@@ -603,9 +832,11 @@ export default function AdminUsersPage() {
                 disabled={createLoading}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="cu-role">Vai trò</Label>
+            
+            {/* Role selection - Manager chỉ thấy Employee */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="cu-role">Vai trò</Label>
+              {isAdmin ? (
                 <select
                   id="cu-role"
                   value={createForm.role}
@@ -619,49 +850,137 @@ export default function AdminUsersPage() {
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
                   <option value="employee">Nhân viên</option>
+                  <option value="manager">Quản lý</option>
                   <option value="trainer">Giảng viên</option>
                   <option value="hr">Nhân sự</option>
                   <option value="admin">Quản trị</option>
                 </select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="cu-dept">Phòng ban</Label>
-                <Input
-                  id="cu-dept"
-                  placeholder="VD: Kỹ thuật"
-                  value={createForm.department}
+              ) : (
+                <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
+                  <Badge variant="secondary">Nhân viên</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    Bạn chỉ có thể tạo tài khoản Nhân viên
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Manager selection */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="cu-manager">
+                <Building2 className="inline h-4 w-4 mr-1" />
+                Người quản lý
+              </Label>
+              {isAdmin ? (
+                <select
+                  id="cu-manager"
+                  value={createForm.managerId}
                   onChange={(e) =>
-                    setCreateForm((f) => ({
-                      ...f,
-                      department: e.target.value,
-                    }))
+                    setCreateForm((f) => ({ ...f, managerId: e.target.value }))
                   }
                   disabled={createLoading}
-                />
-              </div>
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Không có</option>
+                  {managers.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.displayName} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
+                  <Badge variant="default">
+                    {managers.find((m) => m.id === currentUserId)?.displayName ?? "Bạn"}
+                  </Badge>
+                  <span className="text-sm text-muted-foreground">
+                    Nhân viên sẽ được gán quản lý bởi bạn
+                  </span>
+                </div>
+              )}
             </div>
+
+            <div className="grid gap-1.5">
+              <Label htmlFor="cu-dept">Phòng ban</Label>
+              <Input
+                id="cu-dept"
+                placeholder="VD: Kỹ thuật, Kinh doanh..."
+                value={createForm.department}
+                onChange={(e) =>
+                  setCreateForm((f) => ({
+                    ...f,
+                    department: e.target.value,
+                  }))
+                }
+                disabled={createLoading}
+              />
+            </div>
+
+            {/* Programs selection */}
+            {availablePrograms.length > 0 && (
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Chương trình đào tạo ({selectedProgramIds.size} đã chọn)</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() => setSelectedProgramIds(new Set())}
+                    >
+                      Bỏ chọn
+                    </Button>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() =>
+                        setSelectedProgramIds(new Set(availablePrograms.map((p) => p.id)))
+                      }
+                    >
+                      Chọn tất cả
+                    </Button>
+                  </div>
+                </div>
+                <div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-1">
+                  {availablePrograms.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={selectedProgramIds.has(p.id)}
+                        onCheckedChange={(checked) => {
+                          setSelectedProgramIds((s) => {
+                            const ns = new Set(s);
+                            if (checked) ns.add(p.id);
+                            else ns.delete(p.id);
+                            return ns;
+                          });
+                        }}
+                      />
+                      <span className="text-sm flex-1">{p.title}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Nhân viên sẽ được gán các chương trình đã chọn sau khi tạo.
+                </p>
+              </div>
+            )}
 
             {createError && (
               <Alert variant="destructive">
-                <AlertDescription className="text-xs">
-                  {createError}
-                </AlertDescription>
+                <AlertDescription className="text-xs">{createError}</AlertDescription>
               </Alert>
             )}
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={closeCreate}
-              disabled={createLoading}
-            >
+            <Button variant="outline" onClick={closeCreate} disabled={createLoading}>
               Hủy
             </Button>
-            <Button
-              onClick={handleCreateUser}
-              disabled={createLoading}
-            >
+            <Button onClick={handleCreateUser} disabled={createLoading}>
               {createLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -670,7 +989,7 @@ export default function AdminUsersPage() {
               ) : (
                 <>
                   <Plus className="mr-2 h-4 w-4" />
-                  Tạo người dùng
+                  {isManager ? "Thêm nhân viên" : "Tạo người dùng"}
                 </>
               )}
             </Button>

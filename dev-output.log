@@ -1,0 +1,32 @@
+========================================
+  EPATH SYSTEM TRAINING - DEV SERVER
+========================================
+
+Thu muc: D:\LP 
+
+Dang kiem tra dependencies...
+
+========================================
+  DANG KHOI DONG DEV SERVER...
+========================================
+
+
+> epath-system-training@0.1.0 dev
+> node ./node_modules/next/dist/bin/next dev
+
+   ▲ Next.js 15.5.20
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.119:3000
+   - Environments: .env.local
+   - Experiments (use with caution):
+     · serverActions
+
+ ✓ Starting...
+ ✓ Ready in 2.1s
+ ○ Compiling /api/stream/token ...
+ ✓ Compiled /api/stream/token in 2.1s (412 modules)
+ POST /api/stream/token 401 in 3071ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 6.6s (1244 modules)
+ GET /api/stream/sometoken/ppt 404 in 7332ms
+ ✓ Compiled in 950ms (360 modules)

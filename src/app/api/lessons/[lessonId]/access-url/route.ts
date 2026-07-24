@@ -6,7 +6,7 @@ import { bad } from "@/lib/api-auth";
  * GET /api/lessons/:lessonId/access-url
  *
  * ĐÃ NGỪNG SỬ DỤNG: endpoint này trước đây trả presigned URL trực tiếp
- * tới R2 → user có thể copy và share. Đã thay bằng:
+ * tới Viettel IDC S3 → user có thể copy và share. Đã thay bằng:
  *   - Video: POST /api/stream/token + HLS streaming (watermark per user)
  *   - PDF:   POST /api/stream/token + /api/stream/[token]/file
  *

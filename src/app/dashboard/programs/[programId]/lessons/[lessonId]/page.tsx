@@ -5,7 +5,6 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
   ArrowLeft,
-  ArrowRight,
   CheckCircle2,
   Award,
   Loader2,
@@ -15,7 +14,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
@@ -27,6 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { PageContainer } from "@/components/layout";
+import { useAuth } from "@/hooks/use-auth";
 import {
   lessonService,
   programService,
@@ -62,6 +61,7 @@ export default function EmployeeLessonPage({
   params: Promise<{ programId: string; lessonId: string }>;
 }) {
   const { programId, lessonId } = use(params);
+  const { user } = useAuth();
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,13 +74,15 @@ export default function EmployeeLessonPage({
   const [submitResult, setSubmitResult] = useState<TestSubmitResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mark complete
-  const [isMarkingComplete, setIsMarkingComplete] = useState(false);
+  // Completion state
   const [isCompleted, setIsCompleted] = useState(false);
 
   // Khi server trả 403 vì admin chưa gán chương trình, ta hiện banner
   // nhẹ + retry định kỳ (có thể admin vừa gán xong). Không spam toast.
   const [assignmentMissing, setAssignmentMissing] = useState(false);
+
+  // Track if content has been viewed (for auto-complete)
+  const [hasViewedContent, setHasViewedContent] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -171,26 +173,72 @@ export default function EmployeeLessonPage({
     };
   }, [programId, lessonId, isCompleted]);
 
-  const handleMarkComplete = async () => {
-    if (lesson?.hasTest && submitResult?.passed !== true) {
-      setError("Cần hoàn thành bài test (đạt) trước khi đánh dấu hoàn thành.");
-      return;
-    }
-    setIsMarkingComplete(true);
-    setError(null);
+  // Tự động đánh dấu hoàn thành khi đã xem hết nội dung
+  const handleAutoComplete = useCallback(async () => {
+    if (isCompleted || !lesson || isLocked) return;
+    // Chỉ auto-complete cho lesson không có test
+    if (lesson.hasTest) return;
+    
+    setHasViewedContent(true);
+    
+    // Đánh dấu completed
     try {
       const res = await progressService.update(programId, lessonId, "completed");
       if (res.success) {
         setIsCompleted(true);
-      } else {
-        setError((res as { error?: string }).error ?? "Lỗi");
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsMarkingComplete(false);
+    } catch {
+      // ignore errors for auto-complete
     }
-  };
+  }, [isCompleted, lesson, isLocked, programId, lessonId]);
+
+  // Callback khi video kết thúc
+  const handleVideoComplete = useCallback(() => {
+    void handleAutoComplete();
+  }, [handleAutoComplete]);
+
+  // Callback khi PDF đã đọc hết (scroll 95%)
+  const handlePdfComplete = useCallback(() => {
+    void handleAutoComplete();
+  }, [handleAutoComplete]);
+
+  // Đánh dấu hoàn thành khi xem text content (scroll hết)
+  useEffect(() => {
+    if (!lesson || lesson.contentType !== "text" || hasViewedContent || isCompleted || isLocked) return;
+    
+    // Thêm listener để track scroll trên text content
+    const contentEl = document.getElementById("lesson-text-content");
+    if (!contentEl) {
+      // Nếu không tìm thấy, đánh dấu là đã xem sau 3 giây (chống lướt nhanh)
+      const timer = setTimeout(() => {
+        void handleAutoComplete();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+    
+    let hasScrolledToEnd = false;
+    const handleScroll = () => {
+      if (hasScrolledToEnd) return;
+      const { scrollTop, scrollHeight, clientHeight } = contentEl;
+      // Đã cuộn đến cuối (còn 50px)
+      if (scrollTop + clientHeight >= scrollHeight - 50) {
+        hasScrolledToEnd = true;
+        void handleAutoComplete();
+      }
+    };
+    
+    // Kiểm tra nếu nội dung ngắn, không cần scroll
+    if (contentEl.scrollHeight <= contentEl.clientHeight) {
+      // Nội dung ngắn, đánh dấu đã xem sau 3 giây
+      const timer = setTimeout(() => {
+        void handleAutoComplete();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+    
+    contentEl.addEventListener("scroll", handleScroll);
+    return () => contentEl.removeEventListener("scroll", handleScroll);
+  }, [lesson, hasViewedContent, isCompleted, isLocked, handleAutoComplete]);
 
   const handleSubmitTest = async () => {
     if (!test) return;
@@ -314,6 +362,12 @@ export default function EmployeeLessonPage({
                   : "PDF"}
             </Badge>
             {lesson.hasTest && <Badge>Có bài test</Badge>}
+            {isCompleted && (
+              <Badge variant="success" className="ml-auto">
+                <CheckCircle2 className="mr-1 h-3 w-3" />
+                Đã hoàn thành
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -331,7 +385,9 @@ export default function EmployeeLessonPage({
               </Button>
             </div>
           ) : lesson.contentType === "text" ? (
-            <div className="prose prose-sm max-w-none dark:prose-invert [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_img]:max-w-full [&_a]:text-blue-600 [&_a]:underline"
+            <div 
+              id="lesson-text-content"
+              className="prose prose-sm max-w-none dark:prose-invert overflow-auto max-h-[70vh] [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_img]:max-w-full [&_a]:text-blue-600 [&_a]:underline"
               dangerouslySetInnerHTML={{ __html: lesson.textContent || "" }}
             />
           ) : lesson.contentType === "video" ? (
@@ -339,8 +395,9 @@ export default function EmployeeLessonPage({
               programId={programId}
               lessonId={lessonId}
               title={lesson.title}
-              userId={undefined}
+              userId={user?.id}
               requireFullWatch={false}
+              onComplete={handleVideoComplete}
             />
           ) : (
             <SecurePdfViewer
@@ -348,28 +405,11 @@ export default function EmployeeLessonPage({
               lessonId={lessonId}
               title={lesson.title}
               fileName={lesson.fileMeta?.fileName}
+              onComplete={handlePdfComplete}
             />
           )}
         </CardContent>
       </Card>
-
-      {/* Mark complete - chỉ hiện khi không có test, hoặc khi đã pass test */}
-      {(!lesson.hasTest || submitResult?.passed) && !isCompleted && !isLocked && (
-        <div className="mt-4 flex justify-end">
-          <Button
-            onClick={handleMarkComplete}
-            disabled={isMarkingComplete}
-            size="lg"
-          >
-            {isMarkingComplete ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-            )}
-            Đánh dấu hoàn thành
-          </Button>
-        </div>
-      )}
 
       {isCompleted && !lesson.hasTest && (
         <Alert className="mt-4 border-green-500/50 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">

@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import type { AuthUser } from "@/lib/api-auth";
 import type { LessonContentType } from "@/types/training";
+
+function canManageLessons(user: AuthUser | null): boolean {
+  return isAdmin(user) || isManager(user);
+}
+
+function canAccessLesson(me: AuthUser | null, programId: string): Promise<boolean> {
+  // Admin/Manager luôn được xem
+  if (isAdmin(me) || isManager(me)) return Promise.resolve(true);
+  
+  // Employee cần được gán chương trình
+  if (!me) return Promise.resolve(false);
+  return adminDb
+    .collection("assignments")
+    .doc(`${me.uid}_${programId}`)
+    .get()
+    .then((snap) => snap.exists);
+}
 
 /**
  * GET /api/programs/:programId/lessons/:lessonId
- *  Trả về chi tiết lesson (kèm textContent). Với non-admin: ẩn fileKey.
+ *  Trả về chi tiết lesson (kèm textContent). Với non-admin/manager: ẩn fileKey.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
   try {
@@ -13,12 +31,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
     if (!me) return bad("Unauthorized", 401);
     const { programId, lessonId } = await ctx.params;
 
-    if (!isAdmin(me)) {
-      const assignSnap = await adminDb
-        .collection("assignments")
-        .doc(`${me.uid}_${programId}`)
-        .get();
-      if (!assignSnap.exists) return bad("Forbidden", 403);
+    if (!await canAccessLesson(me, programId)) {
+      return bad("Forbidden", 403);
     }
 
     const ref = adminDb
@@ -29,7 +43,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
     const snap = await ref.get();
     if (!snap.exists) return bad("Lesson not found", 404);
     const data = snap.data() as Record<string, unknown>;
-    if (!isAdmin(me)) {
+    if (!isAdmin(me) && !isManager(me)) {
       const { fileKey, ...rest } = data;
       return ok({ id: snap.id, ...rest });
     }
@@ -42,14 +56,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
 
 /**
  * PUT /api/programs/:programId/lessons/:lessonId
- *  Body: { title?, order?, contentType?, textContent?, fileKey?, fileMeta? }
- *  Chỉ admin.
+ *  Body: { title?, order?, contentType?, textContent?, fileKey?, fileMeta?, allowedRoles? }
+ *  Admin và Manager đều có thể sửa.
  */
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!canManageLessons(me)) return bad("Forbidden - chỉ admin và manager", 403);
     const { programId, lessonId } = await ctx.params;
 
     const ref = adminDb
@@ -67,6 +81,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
       textContent?: string | null;
       fileKey?: string | null;
       fileMeta?: { fileName: string; size: number; mimeType: string; duration?: number } | null;
+      allowedRoles?: string[];
     };
 
     const update: Record<string, unknown> = { updatedAt: new Date() };
@@ -80,12 +95,26 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
       }
       update.contentType = body.contentType;
     }
-    if (typeof body.textContent === "string") update.textContent = body.textContent;
+    if (typeof body.textContent === "string") {
+      // Firestore giới hạn mỗi field ~1 MiB.
+      const MAX_TEXT_CONTENT = 1_000_000;
+      if (Buffer.byteLength(body.textContent, "utf8") > MAX_TEXT_CONTENT) {
+        return bad(
+          `Nội dung text quá lớn (giới hạn ~${MAX_TEXT_CONTENT / 1024} KB). Hãy chia thành nhiều lesson hoặc upload file PDF/video.`,
+          413
+        );
+      }
+      update.textContent = body.textContent;
+    }
     if (body.textContent === null) update.textContent = null;
     if (typeof body.fileKey === "string") update.fileKey = body.fileKey;
     if (body.fileKey === null) update.fileKey = null;
     if (body.fileMeta) update.fileMeta = body.fileMeta;
     if (body.fileMeta === null) update.fileMeta = null;
+    // Cập nhật allowedRoles (chỉ admin mới được thay đổi)
+    if (isAdmin(me) && body.allowedRoles !== undefined) {
+      update.allowedRoles = body.allowedRoles;
+    }
 
     await ref.update(update);
     return ok();

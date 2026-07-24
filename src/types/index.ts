@@ -1,5 +1,5 @@
 // User Types
-export type UserRole = "admin" | "hr" | "trainer" | "employee";
+export type UserRole = "admin" | "manager" | "hr" | "trainer" | "employee";
 
 export interface User {
   id: string;
@@ -10,6 +10,7 @@ export interface User {
   department?: string;
   position?: string;
   phone?: string;
+  managerId?: string; // ID của manager quản lý nhân viên này
   enrolledCourses: string[];
   completedCourses: string[];
   createdAt: Date;
