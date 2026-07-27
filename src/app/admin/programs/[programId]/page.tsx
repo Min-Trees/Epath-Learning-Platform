@@ -4,6 +4,25 @@ import { useEffect, useState, use, useCallback, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   ArrowLeft,
   Edit,
   Eye,
@@ -17,19 +36,15 @@ import {
   CheckCircle2,
   Send,
   Award,
-  ArrowUp,
-  ArrowDown,
   RotateCcw,
   Users,
   BarChart3,
   MoreHorizontal,
   BookOpen,
-  Target,
-  Clock,
   Calendar,
   GripVertical,
   X,
-  ChevronRight,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +75,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PageContainer } from "@/components/layout";
 import { useAuth } from "@/hooks/use-auth";
-import { programService, lessonService } from "@/services/training";
+import { programService, lessonService, reorderService } from "@/services/training";
 import type { Program, Lesson, LessonContentType } from "@/types/training";
 import { formatDateTime } from "@/utils";
 import { performUpload } from "@/lib/upload";
@@ -74,19 +89,19 @@ const TiptapEditor = dynamic(
   }
 );
 
-const TYPE_ICONS: Record<LessonContentType, React.ComponentType<{ className?: string }>> = {
+const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   text: FileText,
   video: Video,
   pdf: FileType,
 };
 
-const TYPE_LABELS: Record<LessonContentType, string> = {
+const TYPE_LABELS: Record<string, string> = {
   text: "Văn bản",
   video: "Video",
   pdf: "PDF",
 };
 
-const TYPE_COLORS: Record<LessonContentType, string> = {
+const TYPE_COLORS: Record<string, string> = {
   text: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   video: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
   pdf: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
@@ -124,6 +139,170 @@ const EMPTY_LESSON_FORM: LessonFormState = {
   uploadError: null,
 };
 
+// ─── Sortable Lesson Row ────────────────────────────────────
+// Extracted to a sub-component so useSortable is called at the top level
+// (React 19 requires stable hook ordering across renders)
+function SortableLessonRow({
+  lesson,
+  isEditMode,
+  isAdmin,
+  isActive,
+  onSetTest,
+  onEdit,
+  onDelete,
+}: {
+  lesson: Lesson;
+  isEditMode: boolean;
+  isAdmin: boolean;
+  isActive: boolean;
+  onSetTest: (l: Lesson) => void;
+  onEdit: (l: Lesson) => void;
+  onDelete: (l: Lesson) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: lesson.id, disabled: !isEditMode });
+
+  const style = isEditMode
+    ? {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+      }
+    : undefined;
+
+  const Icon = TYPE_ICONS[lesson.contentType] ?? FileText;
+  const colorClass = TYPE_COLORS[lesson.contentType] ?? "bg-gray-100 text-gray-700";
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`
+        flex items-center gap-3 rounded-lg border p-4 transition-all
+        hover:shadow-sm
+        ${isEditMode ? "border-dashed cursor-grab active:cursor-grabbing" : ""}
+        ${isActive ? "opacity-50 bg-muted" : ""}
+      `}
+    >
+      {/* Drag handle */}
+      {isEditMode && (
+        <div
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-5 w-5" />
+        </div>
+      )}
+
+      {/* Order badge */}
+      <Badge variant="outline" className="shrink-0">
+        #{lesson.order}
+      </Badge>
+
+      {/* Type icon */}
+      <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <h4 className="font-medium truncate">{lesson.title}</h4>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{TYPE_LABELS[lesson.contentType]}</span>
+          {lesson.fileMeta && (
+            <span>{(lesson.fileMeta.size / 1024 / 1024).toFixed(1)} MB</span>
+          )}
+          {lesson.hasTest && (
+            <Badge variant="secondary" className="text-xs">
+              <Award className="h-3 w-3 mr-1" />
+              Có test
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Actions — hidden in edit mode */}
+      {!isEditMode && isAdmin && (
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant={lesson.hasTest ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => onSetTest(lesson)}
+          >
+            <Award className="mr-1 h-4 w-4" />
+            {lesson.hasTest ? "Sửa test" : "Thêm test"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onEdit(lesson)}
+          >
+            <Edit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onDelete(lesson)}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sortable Lesson List ───────────────────────────────────
+// Wrapper so DndContext + SortableContext stay stable
+function SortableLessonList({
+  lessons,
+  isEditMode,
+  isAdmin,
+  activeId,
+  onSetTest,
+  onEdit,
+  onDelete,
+}: {
+  lessons: Lesson[];
+  isEditMode: boolean;
+  isAdmin: boolean;
+  activeId: string | null;
+  onSetTest: (l: Lesson) => void;
+  onEdit: (l: Lesson) => void;
+  onDelete: (l: Lesson) => void;
+}) {
+  return (
+    <SortableContext
+      items={lessons.map((l) => l.id)}
+      strategy={verticalListSortingStrategy}
+      disabled={!isEditMode}
+    >
+      <div className="space-y-2">
+        {lessons.map((l) => (
+          <SortableLessonRow
+            key={l.id}
+            lesson={l}
+            isEditMode={isEditMode}
+            isAdmin={isAdmin}
+            isActive={activeId === l.id}
+            onSetTest={onSetTest}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </SortableContext>
+  );
+}
+
 export default function AdminProgramDetailPage({
   params,
 }: {
@@ -146,7 +325,20 @@ export default function AdminProgramDetailPage({
   // Lesson form
   const [lessonForm, setLessonForm] = useState<LessonFormState | null>(null);
   const [isSavingLesson, setIsSavingLesson] = useState(false);
-  const [draggedLesson, setDraggedLesson] = useState<string | null>(null);
+
+  // DnD / Edit mode
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [localLessons, setLocalLessons] = useState<Lesson[] | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Test editor
   const [testEditorLesson, setTestEditorLesson] = useState<Lesson | null>(null);
@@ -429,6 +621,45 @@ export default function AdminProgramDetailPage({
     }
   };
 
+  // ─── DnD Edit Mode ───────────────────────────────────────
+  const displayLessons = localLessons ?? lessons;
+
+  const enterEditMode = () => {
+    setLocalLessons([...lessons]);
+    setIsEditMode(true);
+  };
+
+  const exitEditMode = () => {
+    setLocalLessons(null);
+    setIsEditMode(false);
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over || active.id === over.id || !localLessons) return;
+
+    const oldIdx = localLessons.findIndex((l) => l.id === active.id);
+    const newIdx = localLessons.findIndex((l) => l.id === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+
+    const reordered = arrayMove(localLessons, oldIdx, newIdx);
+    setLocalLessons(reordered);
+
+    // Persist
+    setSaving(true);
+    reorderService
+      .lessons(programId, reordered.map((l, i) => ({ id: l.id, order: i + 1 })))
+      .then((res) => {
+        if (!res.success) console.error("Failed to reorder lessons:", res);
+      })
+      .finally(() => setSaving(false));
+  };
+
   // File upload
   const handleFileSelect = async (file: File) => {
     if (!lessonForm) return;
@@ -572,20 +803,61 @@ export default function AdminProgramDetailPage({
           </Button>
           {isAdmin && (
             <>
-              <Button
-                variant={isPublished ? "outline" : "default"}
-                onClick={handlePublish}
-                disabled={isPublishing}
-              >
-                {isPublishing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : isPublished ? (
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                ) : (
-                  <Send className="mr-2 h-4 w-4" />
-                )}
-                {isPublished ? "Hủy publish" : "Publish"}
-              </Button>
+              {isEditMode ? (
+                <>
+                  <span className="text-xs text-muted-foreground self-center">
+                    {saving ? "Đang lưu..." : ""}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      exitEditMode();
+                      load();
+                    }}
+                    disabled={saving}
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Hủy
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      exitEditMode();
+                      load();
+                    }}
+                    disabled={saving}
+                  >
+                    <Check className="mr-1 h-4 w-4" />
+                    Xong
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={enterEditMode}
+                  >
+                    <GripVertical className="mr-1 h-4 w-4" />
+                    Sắp xếp
+                  </Button>
+                  <Button
+                    variant={isPublished ? "outline" : "default"}
+                    onClick={handlePublish}
+                    disabled={isPublishing}
+                  >
+                    {isPublishing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : isPublished ? (
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" />
+                    )}
+                    {isPublished ? "Hủy publish" : "Publish"}
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -735,13 +1007,15 @@ export default function AdminProgramDetailPage({
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <BookOpen className="h-5 w-5" />
-                  Bài học ({lessons.length})
+                  Bài học ({displayLessons.length})
                 </CardTitle>
                 <CardDescription>
-                  Kéo thả để sắp xếp thứ tự. Mỗi bài có thể kèm bài kiểm tra.
+                  {isEditMode
+                    ? "Kéo thả để sắp xếp thứ tự. Nhấn Xong để hoàn tất."
+                    : "Kéo thả để sắp xếp thứ tự. Mỗi bài có thể kèm bài kiểm tra."}
                 </CardDescription>
               </div>
-              {isAdmin && (
+              {!isEditMode && isAdmin && (
                 <Button onClick={openCreateLesson}>
                   <Plus className="mr-2 h-4 w-4" />
                   Thêm bài học
@@ -750,14 +1024,14 @@ export default function AdminProgramDetailPage({
             </div>
           </CardHeader>
           <CardContent>
-            {lessons.length === 0 ? (
+            {displayLessons.length === 0 ? (
               <div className="py-12 text-center">
                 <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
                 <h3 className="text-lg font-medium mb-2">Chưa có bài học nào</h3>
                 <p className="text-muted-foreground mb-6">
                   Thêm bài học đầu tiên để hoàn thiện chương trình đào tạo.
                 </p>
-                {isAdmin && (
+                {!isEditMode && isAdmin && (
                   <Button onClick={openCreateLesson}>
                     <Plus className="mr-2 h-4 w-4" />
                     Thêm bài học đầu tiên
@@ -765,109 +1039,51 @@ export default function AdminProgramDetailPage({
                 )}
               </div>
             ) : (
-              <div className="space-y-2">
-                {lessons.map((l, idx) => {
-                  const Icon = TYPE_ICONS[l.contentType];
-                  const colorClass = TYPE_COLORS[l.contentType];
-                  return (
-                    <div
-                      key={l.id}
-                      className={`
-                        flex items-center gap-3 rounded-lg border p-4 transition-all
-                        hover:shadow-sm
-                        ${draggedLesson === l.id ? "opacity-50 bg-muted" : ""}
-                      `}
-                    >
-                      {/* Drag handle */}
-                      {isAdmin && (
-                        <div className="cursor-grab text-muted-foreground">
-                          <GripVertical className="h-5 w-5" />
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={displayLessons.map((l) => l.id)}
+                  strategy={verticalListSortingStrategy}
+                  disabled={!isEditMode}
+                >
+                  <div className="space-y-2">
+                    {displayLessons.map((l) => (
+                      <SortableLessonRow
+                        key={l.id}
+                        lesson={l}
+                        isEditMode={isEditMode}
+                        isAdmin={isAdmin}
+                        isActive={activeId === l.id}
+                        onSetTest={setTestEditorLesson}
+                        onEdit={openEditLesson}
+                        onDelete={handleDeleteLesson}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+                <DragOverlay>
+                  {(() => {
+                    const activeLesson = displayLessons.find((l) => l.id === activeId);
+                    if (!activeLesson) return null;
+                    const Icon = TYPE_ICONS[activeLesson.contentType] ?? FileText;
+                    const colorClass = TYPE_COLORS[activeLesson.contentType] ?? "";
+                    return (
+                      <div className="flex items-center gap-3 rounded-lg border bg-background p-4 shadow-lg">
+                        <GripVertical className="h-5 w-5 text-muted-foreground" />
+                        <Badge variant="outline">#{activeLesson.order}</Badge>
+                        <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+                          <Icon className="h-5 w-5" />
                         </div>
-                      )}
-
-                      {/* Order controls */}
-                      {isAdmin && (
-                        <div className="flex flex-col">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            disabled={idx === 0}
-                            onClick={() => handleMoveLesson(l, -1)}
-                          >
-                            <ArrowUp className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            disabled={idx === lessons.length - 1}
-                            onClick={() => handleMoveLesson(l, 1)}
-                          >
-                            <ArrowDown className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-
-                      {/* Order badge */}
-                      <Badge variant="outline" className="shrink-0">
-                        #{l.order}
-                      </Badge>
-
-                      {/* Type icon */}
-                      <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
-                        <Icon className="h-5 w-5" />
+                        <div className="flex-1 font-medium">{activeLesson.title}</div>
                       </div>
-
-                      {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium truncate">{l.title}</h4>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{TYPE_LABELS[l.contentType]}</span>
-                          {l.fileMeta && (
-                            <span>{(l.fileMeta.size / 1024 / 1024).toFixed(1)} MB</span>
-                          )}
-                          {l.hasTest && (
-                            <Badge variant="secondary" className="text-xs">
-                              <Award className="h-3 w-3 mr-1" />
-                              Có test
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      {isAdmin && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            variant={l.hasTest ? "secondary" : "outline"}
-                            size="sm"
-                            onClick={() => setTestEditorLesson(l)}
-                          >
-                            <Award className="mr-1 h-4 w-4" />
-                            {l.hasTest ? "Sửa test" : "Thêm test"}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditLesson(l)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteLesson(l)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })()}
+                </DragOverlay>
+              </DndContext>
             )}
           </CardContent>
         </Card>
@@ -1102,7 +1318,7 @@ export default function AdminProgramDetailPage({
             </div>
             <div className="space-y-2">
               {lessons.map((l, idx) => {
-                const LessonIcon = TYPE_ICONS[l.contentType];
+                const LessonIcon = TYPE_ICONS[l.contentType] ?? FileText;
                 return (
                   <div key={l.id} className="flex items-center gap-3 p-4 rounded-lg border">
                     <Badge variant="outline">{idx + 1}</Badge>

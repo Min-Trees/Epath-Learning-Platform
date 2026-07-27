@@ -26,7 +26,18 @@ export async function GET(req: NextRequest) {
 
     const snap = await ref.get();
     const items = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }));
-    return ok({ items });
+
+    // Admin/Manager: also fetch groups
+    const groups =
+      isAdmin(me) || me.role === "manager"
+        ? await adminDb
+            .collection("programGroups")
+            .orderBy("order", "asc")
+            .get()
+            .then((gs) => gs.docs.map((d) => ({ id: d.id, ...(d.data() as object) })))
+        : [];
+
+    return ok({ items, groups });
   } catch (e) {
     console.error("[api/programs][GET] error:", e);
     return bad(e instanceof Error ? e.message : "Internal error", 500);
@@ -35,7 +46,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/programs
- *  Body: { title, description }
+ *  Body: { title, description, groupId? }
  *  -> Tạo chương trình ở trạng thái draft (admin/manager).
  */
 export async function POST(req: NextRequest) {
@@ -47,6 +58,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       title?: string;
       description?: string;
+      groupId?: string | null;
     };
     const title = (body.title ?? "").trim();
     if (!title) return bad("Tiêu đề không được trống");
@@ -59,6 +71,7 @@ export async function POST(req: NextRequest) {
       createdBy: me.uid,
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...(body.groupId !== undefined ? { groupId: body.groupId } : {}),
     });
     return ok({ programId: ref.id });
   } catch (e) {

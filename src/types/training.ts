@@ -12,6 +12,21 @@ export interface Program {
   publishedAt?: Date;
   // Các role được phép xem program này (nếu không có thì ai cũng xem được sau khi publish)
   allowedRoles?: string[];
+  // Nhóm chương trình
+  groupId?: string | null;
+}
+
+export interface ProgramWithGroup extends Program {
+  groupName?: string | null;
+}
+
+// ─── ProgramGroup ────────────────────────────────────────────
+export interface ProgramGroup {
+  id: string;
+  name: string;
+  order: number;
+  createdAt: Date;
+  updatedAt?: Date;
 }
 
 // ─── Lesson (Bài học) ───────────────────────────────────────

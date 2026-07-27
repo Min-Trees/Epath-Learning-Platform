@@ -1,6 +1,7 @@
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api-client";
 import type {
   Program,
+  ProgramGroup,
   Lesson,
   LessonTest,
   PublicTest,
@@ -18,12 +19,12 @@ import type {
 
 // ─── Programs ────────────────────────────────────────────────
 export const programService = {
-  list: () => apiGet<{ items: Program[] }>("/api/programs"),
+  list: () => apiGet<{ items: Program[]; groups?: ProgramGroup[] }>("/api/programs"),
   get: (id: string) =>
     apiGet<{ program: Program; lessons: Lesson[] }>(`/api/programs/${id}`),
-  create: (data: { title: string; description?: string }) =>
+  create: (data: { title: string; description?: string; groupId?: string | null }) =>
     apiPost<{ programId: string }>("/api/programs", data),
-  update: (id: string, data: { title?: string; description?: string }) =>
+  update: (id: string, data: { title?: string; description?: string; status?: "draft" | "published"; groupId?: string | null }) =>
     apiPut(`/api/programs/${id}`, data),
   remove: (id: string) => apiDelete(`/api/programs/${id}`),
   publish: (id: string) => apiPost(`/api/programs/${id}/publish`, {}),
@@ -177,9 +178,10 @@ export const myProgramsService = {
         programId: string;
         status: string;
         assignedAt: Date | null;
-        program: { id: string; title: string; description: string; status: string } | null;
+        program: { id: string; title: string; description: string; status: string; groupId?: string | null } | null;
         progress?: { totalLessons: number; completedLessons: number; percent: number };
       }>;
+      groups?: ProgramGroup[];
     }>("/api/me/programs"),
 };
 

@@ -44,7 +44,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
 
 /**
  * PUT /api/programs/:programId - chỉ admin
- *  Body: { title?, description?, status? }
+ *  Body: { title?, description?, status?, groupId? }
  */
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
@@ -61,12 +61,14 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
       title?: string;
       description?: string;
       status?: "draft" | "published";
+      groupId?: string | null;
     };
 
     const update: Record<string, unknown> = { updatedAt: new Date() };
     if (typeof body.title === "string" && body.title.trim()) update.title = body.title.trim();
     if (typeof body.description === "string") update.description = body.description;
     if (body.status === "draft" || body.status === "published") update.status = body.status;
+    if (body.groupId !== undefined) update.groupId = body.groupId;
 
     await ref.update(update);
     return ok();

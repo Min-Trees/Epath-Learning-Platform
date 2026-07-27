@@ -12,7 +12,6 @@ import {
   Video,
   FileType,
   Play,
-  Lock,
   HelpCircle,
   File,
 } from "lucide-react";
@@ -191,28 +190,21 @@ export default function EmployeeProgramDetailPage({
 
       <div className="grid gap-2">
         {(() => {
-          let previousCompleted = true;
-          return lessons.map((l, idx) => {
+          return lessons.map((l) => {
             const Icon = TYPE_ICONS[l.contentType] ?? TYPE_ICONS.default;
             const lp = progressMap.get(l.id);
             const isDone = lp?.lessonStatus === "completed";
             const isInProgress = lp?.lessonStatus === "in_progress";
-            const locked = !previousCompleted;
-            previousCompleted = isDone;
             const content = (
               <div
                 className={`flex items-center gap-3 rounded-md border p-3 transition-colors ${
-                  locked
-                    ? "cursor-not-allowed border-dashed bg-muted/30 opacity-60"
-                    : isDone
-                      ? "border-green-500/30 hover:bg-muted/50"
-                      : "hover:bg-muted/50"
+                  isDone
+                    ? "border-green-500/30 hover:bg-muted/50"
+                    : "hover:bg-muted/50"
                 }`}
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                  {locked ? (
-                    <Lock className="h-5 w-5 text-muted-foreground" />
-                  ) : isDone ? (
+                  {isDone ? (
                     <CheckCircle2 className="h-6 w-6 text-green-600" />
                   ) : isInProgress ? (
                     <Circle className="h-6 w-6 text-orange-500" />
@@ -227,17 +219,15 @@ export default function EmployeeProgramDetailPage({
                 <div className="flex-1">
                   <div className="font-medium">{l.title}</div>
                   <div className="text-xs text-muted-foreground">
-                    {locked
-                      ? "Hoàn thành bài trước để mở khóa"
-                      : `${TYPE_LABELS[l.contentType] ?? TYPE_LABELS.default}${
-                          l.hasTest ? " · có bài test" : ""
-                        }`}
+                    {`${TYPE_LABELS[l.contentType] ?? TYPE_LABELS.default}${
+                      l.hasTest ? " · có bài test" : ""
+                    }`}
                   </div>
                 </div>
-                {l.hasTest && !locked && (
+                {l.hasTest && (
                   <Award className="h-4 w-4 text-muted-foreground" />
                 )}
-                {lp?.testResult && !locked && (
+                {lp?.testResult && (
                   <Badge
                     variant={lp.testResult.passed ? "success" : "destructive"}
                   >
@@ -246,13 +236,6 @@ export default function EmployeeProgramDetailPage({
                 )}
               </div>
             );
-            if (locked) {
-              return (
-                <div key={l.id} aria-disabled>
-                  {content}
-                </div>
-              );
-            }
             return (
               <Link
                 key={l.id}

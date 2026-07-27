@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       programId: string;
       status: string;
       assignedAt: Date | null;
-      program: { id: string; title: string; description: string; status: string } | null;
+      program: { id: string; title: string; description: string; status: string; groupId?: string | null } | null;
       progress?: { totalLessons: number; completedLessons: number; percent: number };
     }> = [];
 
@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
             description:
               (progSnap.data() as { description?: string }).description ?? "",
             status: (progSnap.data() as { status?: string }).status ?? "draft",
+            groupId: (progSnap.data() as { groupId?: string | null }).groupId ?? null,
           }
         : null;
 
@@ -94,7 +95,15 @@ export async function GET(req: NextRequest) {
         progress: { totalLessons, completedLessons, percent },
       });
     }
-    return ok({ items });
+
+    // Fetch program groups for grouping
+    const groupsSnap = await adminDb
+      .collection("programGroups")
+      .orderBy("order", "asc")
+      .get();
+    const groups = groupsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }));
+
+    return ok({ items, groups });
   } catch (e) {
     console.error("[api/me/programs][GET] error:", e);
     return bad(e instanceof Error ? e.message : "Internal error", 500);
