@@ -113,26 +113,26 @@ export default function EmployeeLessonPage({
       const cur = lp.find((x) => x.id === lessonId);
       if (cur?.lessonStatus === "completed") setIsCompleted(true);
 
-      // Check unlock: lấy danh sách lessons theo order, nếu có lesson trước
-      // chưa completed thì khóa lesson hiện tại.
-      const progRes = await programService.get(programId);
-      if (progRes.success) {
-        const data = progRes.data as { lessons?: { id: string; order?: number }[] };
-        const sorted = ([...(data.lessons ?? [])]).sort(
-          (a, b) => (a.order ?? 0) - (b.order ?? 0)
-        );
-        const idx = sorted.findIndex((x) => x.id === lessonId);
-        if (idx > 0) {
-          const prev = sorted.slice(0, idx);
-          const prevProgressMap = new Map(
-            lp.map((p) => [p.id, p.lessonStatus])
-          );
-          const allPrevDone = prev.every(
-            (p) => prevProgressMap.get(p.id) === "completed"
-          );
-          if (!allPrevDone) setIsLocked(true);
-        }
-      }
+      // Bỏ qua kiểm tra khóa - mở khóa tất cả các lesson
+      // Để khóa lại, xóa comment và uncomment đoạn code bên dưới:
+      // const progRes = await programService.get(programId);
+      // if (progRes.success) {
+      //   const data = progRes.data as { lessons?: { id: string; order?: number }[] };
+      //   const sorted = ([...(data.lessons ?? [])]).sort(
+      //     (a, b) => (a.order ?? 0) - (b.order ?? 0)
+      //   );
+      //   const idx = sorted.findIndex((x) => x.id === lessonId);
+      //   if (idx > 0) {
+      //     const prev = sorted.slice(0, idx);
+      //     const prevProgressMap = new Map(
+      //       lp.map((p) => [p.id, p.lessonStatus])
+      //     );
+      //     const allPrevDone = prev.every(
+      //       (p) => prevProgressMap.get(p.id) === "completed"
+      //     );
+      //     if (!allPrevDone) setIsLocked(true);
+      //   }
+      // }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

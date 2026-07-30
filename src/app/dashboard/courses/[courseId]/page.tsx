@@ -304,23 +304,8 @@ export default function CourseDetailPage() {
                   const Icon = getLessonTypeIcon(lesson.type);
                   const allowPreview = lesson.isPreview ?? index === 0;
 
-                  // Logic chặn:
-                  // 1. Chưa enrolled và không phải preview → khóa
-                  // 2. Nếu requireFullWatch + lesson là video + bài TRƯỚC chưa hoàn thành → khóa
-                  const lockedByEnrollment = !isEnrolled && !allowPreview;
-                  const prevLesson = index > 0 ? lessons[index - 1] : null;
-                  const prevProgress = prevLesson
-                    ? progressMap[prevLesson.id]
-                    : null;
-                  const isPrevVideoLesson =
-                    prevLesson?.type === "video" || !prevLesson?.type;
-                  const lockedByPrev =
-                    requireFullWatch &&
-                    isPrevVideoLesson &&
-                    prevLesson &&
-                    !(prevProgress?.completed ?? false);
-
-                  const isLocked = lockedByEnrollment || lockedByPrev;
+                  // Bỏ qua kiểm tra khóa - mở khóa tất cả các lesson
+                  const isLocked = false;
                   const isCompleted = progressMap[lesson.id]?.completed ?? false;
 
                   return (
@@ -360,12 +345,6 @@ export default function CourseDetailPage() {
                         {lesson.description && (
                           <p className="text-sm text-muted-foreground">
                             {lesson.description}
-                          </p>
-                        )}
-                        {lockedByPrev && prevLesson && (
-                          <p className="mt-1 text-xs text-amber-600 flex items-center gap-1">
-                            <Lock className="h-3 w-3" />
-                            Hoàn thành &ldquo;{prevLesson.title}&rdquo; để mở khóa
                           </p>
                         )}
                       </div>

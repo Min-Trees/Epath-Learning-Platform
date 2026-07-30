@@ -47,14 +47,22 @@ export async function GET(req: NextRequest) {
         .collection("programs")
         .doc(aData.programId)
         .get();
+      
+      // Employee: chỉ hiển thị chương trình đã publish
+      // Admin: hiển thị tất cả
+      const programData = progSnap.data() as { title?: string; description?: string; status?: string; groupId?: string | null } | undefined;
+      const isPublished = programData?.status === "published";
+      
+      // Nếu là employee và chương trình chưa publish, bỏ qua
+      if (!isAdmin(me) && !isPublished) continue;
+
       const program = progSnap.exists
         ? {
             id: progSnap.id,
-            title: (progSnap.data() as { title?: string }).title ?? "",
-            description:
-              (progSnap.data() as { description?: string }).description ?? "",
-            status: (progSnap.data() as { status?: string }).status ?? "draft",
-            groupId: (progSnap.data() as { groupId?: string | null }).groupId ?? null,
+            title: programData?.title ?? "",
+            description: programData?.description ?? "",
+            status: programData?.status ?? "draft",
+            groupId: programData?.groupId ?? null,
           }
         : null;
 
@@ -96,12 +104,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Fetch program groups for grouping
+    // Fetch ALL program groups for grouping (không lọc theo role)
     const groupsSnap = await adminDb
       .collection("programGroups")
       .orderBy("order", "asc")
       .get();
-    const groups = groupsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }));
+    const groups = groupsSnap.docs.map((d) => {
+      const data = d.data();
+      return { id: d.id, name: data.name, order: data.order ?? 0 };
+    });
 
     return ok({ items, groups });
   } catch (e) {

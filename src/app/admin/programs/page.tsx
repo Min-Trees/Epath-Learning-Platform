@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, UseMutationResult } from "@tanstack/react-query";
 import {
   DndContext,
   closestCorners,
@@ -42,6 +42,7 @@ import {
   ChevronRight,
   Layers,
   Check,
+  FolderTree,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -408,6 +409,193 @@ function SortableGroupSection({
   );
 }
 
+// ─── Groups Tab Content Component ─────────────────────────────────
+function GroupsTabContent({
+  groups,
+  programs,
+  isLoading,
+  newGroupName,
+  setNewGroupName,
+  createGroup,
+  handleCreateGroup,
+  handleUpdateGroupName,
+  handleDeleteGroup,
+  handleUpdateGroup,
+}: {
+  groups: ProgramGroup[];
+  programs: Program[];
+  isLoading: boolean;
+  newGroupName: string;
+  setNewGroupName: (value: string) => void;
+  createGroup: UseMutationResult<{ groupId: string }, Error, string>;
+  handleCreateGroup: () => void;
+  handleUpdateGroupName: (groupId: string, name: string) => void;
+  handleDeleteGroup: (groupId: string) => void;
+  handleUpdateGroup: (programId: string, groupId: string | null) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Danh sách nhóm</h2>
+          <p className="text-sm text-muted-foreground">
+            Tạo và quản lý các nhóm chương trình đào tạo
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Tên nhóm mới..."
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); }}
+            className="w-64"
+          />
+          <Button onClick={handleCreateGroup} disabled={!newGroupName.trim() || createGroup.isPending}>
+            {createGroup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+            Thêm nhóm
+          </Button>
+        </div>
+      </div>
+
+      {/* Groups List */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}
+        </div>
+      ) : groups.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <Layers className="h-16 w-16 mx-auto mb-4 text-muted-foreground/50" />
+            <h3 className="text-lg font-medium mb-2">Chưa có nhóm nào</h3>
+            <p className="text-muted-foreground">Tạo nhóm để phân loại chương trình đào tạo</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {groups.map((g) => {
+            const groupPrograms = programs.filter((p) => p.groupId === g.id);
+            return (
+              <Card key={g.id} className="overflow-hidden">
+                <CardHeader className="pb-3 bg-muted/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Layers className="h-5 w-5 text-primary" />
+                      <CardTitle className="text-base">{g.name}</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => {
+                        const newName = window.prompt("Đổi tên nhóm:", g.name);
+                        if (newName && newName.trim()) handleUpdateGroupName(g.id, newName.trim());
+                      }}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground hover:text-destructive" onClick={() => handleDeleteGroup(g.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
+                    <span className="flex items-center gap-1"><BookOpen className="h-4 w-4" />{groupPrograms.length} chương trình</span>
+                  </div>
+                  {groupPrograms.length > 0 ? (
+                    <div className="space-y-2">
+                      {groupPrograms.slice(0, 5).map((p) => (
+                        <div key={p.id} className="flex items-center gap-2 text-sm group-item">
+                          <Badge variant={p.status === "published" ? "success" : "secondary"} className="shrink-0">
+                            {p.status === "published" ? "Đã publish" : "Nháp"}
+                          </Badge>
+                          <span className="truncate flex-1">{p.title}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              if (window.confirm(`Xóa "${p.title}" khỏi nhóm "${g.name}"?`)) {
+                                handleUpdateGroup(p.id, null);
+                              }
+                            }}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                      {groupPrograms.length > 5 && <p className="text-xs text-muted-foreground">+{groupPrograms.length - 5} chương trình khác</p>}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Chưa có chương trình nào</p>
+                  )}
+                  {programs.filter((p) => !p.groupId).length > 0 && (
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="text-xs text-muted-foreground mb-2">Di chuyển chương trình:</p>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="w-full"><Plus className="mr-1 h-4 w-4" />Thêm chương trình</Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-64">
+                          {programs.filter((p) => !p.groupId).map((p) => (
+                            <DropdownMenuItem key={p.id} onSelect={() => handleUpdateGroup(p.id, g.id)}>
+                              <BookOpen className="mr-2 h-4 w-4" /><span className="truncate">{p.title}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Ungrouped Programs */}
+      {programs.filter((p) => !p.groupId).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              Chương trình chưa phân nhóm
+              <Badge variant="secondary">{programs.filter((p) => !p.groupId).length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {programs.filter((p) => !p.groupId).map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border bg-background">
+                  <div className="flex items-center gap-3">
+                    <Badge variant={p.status === "published" ? "success" : "secondary"}>
+                      {p.status === "published" ? "Đã publish" : "Nháp"}
+                    </Badge>
+                    <div>
+                      <p className="font-medium text-sm">{p.title}</p>
+                      {p.description && <p className="text-xs text-muted-foreground truncate max-w-md">{p.description}</p>}
+                    </div>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm"><Layers className="mr-1 h-4 w-4" />Chọn nhóm</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {groups.map((g) => (
+                        <DropdownMenuItem key={g.id} onSelect={() => handleUpdateGroup(p.id, g.id)}>
+                          <Layers className="mr-2 h-4 w-4" />{g.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function AdminProgramsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "manager";
@@ -422,6 +610,7 @@ export default function AdminProgramsPage() {
   const [localGroups, setLocalGroups] = useState<ProgramGroup[] | null>(null);
   const [newGroupName, setNewGroupName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"programs" | "groups">("programs");
 
   // DnD sensors
   const sensors = useSensors(
@@ -884,8 +1073,41 @@ export default function AdminProgramsPage() {
         </Card>
       </div>
 
-      {/* Edit Mode: Group Manager */}
-      {isEditMode && (
+      {/* Tab Navigation */}
+      <div className="mb-6 border-b">
+        <nav className="flex gap-1 -mb-px">
+          <button
+            onClick={() => setActiveTab("programs")}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "programs"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            Chương trình
+            <Badge variant="secondary" className="ml-1">{stats.total}</Badge>
+          </button>
+          <button
+            onClick={() => setActiveTab("groups")}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "groups"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            Nhóm chương trình
+            <Badge variant="secondary" className="ml-1">{groups.length}</Badge>
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === "programs" ? (
+        <>
+          {/* Edit Mode: Group Manager */}
+          {isEditMode && (
         <Card className="mb-6 border-dashed border-2 border-primary/30 bg-primary/5">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -1211,9 +1433,25 @@ export default function AdminProgramsPage() {
           ))}
         </div>
       )}
+        </>
+      ) : (
+        /* ── Groups Tab ── */
+        <GroupsTabContent
+          groups={groups}
+          programs={programs}
+          isLoading={isLoading}
+          newGroupName={newGroupName}
+          setNewGroupName={setNewGroupName}
+          createGroup={createGroup as unknown as UseMutationResult<{ groupId: string }, Error, string>}
+          handleCreateGroup={handleCreateGroup}
+          handleUpdateGroupName={handleUpdateGroupName}
+          handleDeleteGroup={handleDeleteGroup}
+          handleUpdateGroup={handleUpdateGroup}
+        />
+      )}
 
       {/* Quick Actions */}
-      {!isLoading && programs.length > 0 && !isEditMode && (
+      {!isLoading && programs.length > 0 && !isEditMode && activeTab === "programs" && (
         <div className="mt-8 p-6 rounded-lg border bg-muted/30 text-center">
           <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
           <h3 className="text-lg font-medium mb-2">Cần hỗ trợ?</h3>
