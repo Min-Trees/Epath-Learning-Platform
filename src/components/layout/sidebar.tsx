@@ -64,6 +64,12 @@ const adminItems: NavItem[] = [
     roles: ["admin"],
   },
   {
+    title: "Quản lý Tickets",
+    href: "/admin/tickets",
+    icon: Bug,
+    roles: ["admin", "manager", "hr"],
+  },
+  {
     title: "Quản lý người dùng",
     href: "/admin/users",
     icon: Users,
