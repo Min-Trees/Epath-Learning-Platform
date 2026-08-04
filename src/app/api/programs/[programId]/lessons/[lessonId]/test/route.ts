@@ -139,3 +139,38 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
     return bad(e instanceof Error ? e.message : "Internal error", 500);
   }
 }
+
+/**
+ * DELETE /api/programs/:programId/lessons/:lessonId/test
+ *  Xóa test của lesson. Chỉ admin.
+ */
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
+  try {
+    const me = await getAuthUser(req);
+    if (!me) return bad("Unauthorized", 401);
+    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    const { programId, lessonId } = await ctx.params;
+
+    const lessonRef = adminDb
+      .collection("programs")
+      .doc(programId)
+      .collection("lessons")
+      .doc(lessonId);
+    
+    const testsSnap = await lessonRef.collection("test").get();
+    if (!testsSnap.empty) {
+      // Delete all tests in this lesson
+      const batch = adminDb.batch();
+      testsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+    }
+    
+    // Update lesson's hasTest flag
+    await lessonRef.update({ hasTest: false, updatedAt: new Date() });
+    
+    return ok();
+  } catch (e) {
+    console.error("[api/lessons/:id/test][DELETE] error:", e);
+    return bad(e instanceof Error ? e.message : "Internal error", 500);
+  }
+}

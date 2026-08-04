@@ -8,7 +8,7 @@ import {
   TrendingUp,
   Play,
   ArrowRight,
-  Star,
+  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,20 +18,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageContainer } from "@/components/layout";
 import { useAuth } from "@/hooks/use-auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  limit,
-} from "firebase/firestore";
-import type { Course } from "@/types";
+import { myProgramsService } from "@/services/training";
+
+type ProgramItem = {
+  assignmentId: string;
+  userId: string;
+  programId: string;
+  status: string;
+  program: {
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    groupId?: string | null;
+  } | null;
+  progress?: { totalLessons: number; completedLessons: number; percent: number };
+};
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [enrolledCourses, setEnrolledCourses] = useState<Course[]>([]);
-  const [featuredCourses, setFeaturedCourses] = useState<Course[]>([]);
+  const [assignedPrograms, setAssignedPrograms] = useState<ProgramItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,94 +47,81 @@ export default function DashboardPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const enrolledIds: string[] = user.enrolledCourses ?? [];
-        const allCoursesSnap = await getDocs(
-          query(
-            collection(db, "courses"),
-            where("status", "==", "published"),
-            limit(20)
-          )
-        );
-        const allCourses: Course[] = allCoursesSnap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Course, "id">),
-          lessons: [],
-        }));
-        setFeaturedCourses(allCourses.slice(0, 4));
-        setEnrolledCourses(
-          allCourses.filter((c) => enrolledIds.includes(c.id))
-        );
+        // Chỉ lấy các chương trình đã được admin gán cho user
+        const res = await myProgramsService.list();
+        if (res.success && res.data) {
+          const items = ((res.data as { items: ProgramItem[] }).items ?? [])
+            .filter((i) => i.program !== null);
+          setAssignedPrograms(items);
+        } else {
+          setError((res as { error?: string }).error ?? "Lỗi tải chương trình");
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setIsLoading(false);
       }
     };
-    fetchData();
+    void fetchData();
   }, [user]);
 
+  const inProgress = assignedPrograms.filter(
+    (p) => p.status === "in_progress" || p.status === "not_started"
+  );
+  const completed = assignedPrograms.filter((p) => p.status === "completed");
+
   const stats = {
-    enrolledCourses: enrolledCourses.length,
-    inProgressCourses: enrolledCourses.length,
-    totalLearningHours: Math.round(
-      enrolledCourses.reduce((s, c) => s + (c.duration ?? 0), 0) / 3600
-    ),
+    assignedPrograms: assignedPrograms.length,
+    inProgressPrograms: inProgress.length,
+    completedPrograms: completed.length,
+    averageProgress:
+      assignedPrograms.length === 0
+        ? 0
+        : Math.round(
+            assignedPrograms.reduce((s, p) => s + (p.progress?.percent ?? 0), 0) /
+              assignedPrograms.length
+          ),
   };
 
   const statCards = [
     {
-      title: "Chương trình đã ghi danh",
-      value: stats.enrolledCourses,
+      title: "Chương trình được gán",
+      value: stats.assignedPrograms,
       icon: BookOpen,
       color: "text-blue-600",
       bgColor: "bg-blue-100 dark:bg-blue-900/20",
     },
     {
       title: "Đang học",
-      value: stats.inProgressCourses,
+      value: stats.inProgressPrograms,
       icon: Clock,
       color: "text-orange-600",
       bgColor: "bg-orange-100 dark:bg-orange-900/20",
     },
     {
-      title: "Tổng giờ học",
-      value: `${stats.totalLearningHours}h`,
+      title: "Hoàn thành",
+      value: stats.completedPrograms,
       icon: TrendingUp,
-      color: "text-purple-600",
-      bgColor: "bg-purple-100 dark:bg-purple-900/20",
+      color: "text-green-600",
+      bgColor: "bg-green-100 dark:bg-green-900/20",
     },
   ];
 
-  const getLevelBadgeVariant = (level?: string) => {
-    switch (level) {
-      case "beginner":
-        return "success" as const;
-      case "intermediate":
-        return "warning" as const;
-      case "advanced":
-        return "destructive" as const;
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "completed":
+        return <Badge variant="success">Hoàn thành</Badge>;
+      case "in_progress":
+        return <Badge variant="warning">Đang học</Badge>;
       default:
-        return "secondary" as const;
-    }
-  };
-
-  const getLevelLabel = (level?: string) => {
-    switch (level) {
-      case "beginner":
-        return "Cơ bản";
-      case "intermediate":
-        return "Trung bình";
-      case "advanced":
-        return "Nâng cao";
-      default:
-        return level ?? "";
+        return <Badge variant="secondary">Chưa bắt đầu</Badge>;
     }
   };
 
   return (
     <PageContainer
       title={`Xin chào, ${user?.displayName || "User"}!`}
-      description="Tiếp tục hành trình học tập của bạn"
+      description="Các chương trình đã được admin gán cho bạn"
       showBreadcrumb={false}
     >
       {error && (
@@ -140,7 +133,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Grid */}
-      <div className="mb-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {statCards.map((stat) => (
           <Card key={stat.title}>
             <CardContent className="flex items-center gap-4 p-6">
@@ -165,7 +158,7 @@ export default function DashboardPage() {
         <div className="lg:col-span-2">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Tiếp tục học</CardTitle>
+              <CardTitle>Chương trình của tôi</CardTitle>
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/dashboard/programs">
                   Xem tất cả
@@ -187,133 +180,118 @@ export default function DashboardPage() {
                     </div>
                   ))}
                 </div>
-              ) : enrolledCourses.length === 0 ? (
+              ) : assignedPrograms.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <BookOpen className="h-12 w-12 text-muted-foreground/50" />
                   <h3 className="mt-4 font-semibold">Chưa có chương trình nào</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Bắt đầu học ngay hôm nay!
+                  <p className="mt-2 text-sm text-muted-foreground max-w-md">
+                    Bạn chưa được gán chương trình nào. Vui lòng liên hệ admin để được gán chương trình đào tạo.
                   </p>
-                  <Button className="mt-4" asChild>
-                    <Link href="/dashboard/programs">Khám phá chương trình</Link>
-                  </Button>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {enrolledCourses.map((course) => (
-                    <div
-                      key={course.id}
-                      className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row"
-                    >
-                      <div className="h-20 w-32 shrink-0 overflow-hidden rounded-lg bg-muted">
-                        {course.thumbnail ? (
-                          <img
-                            src={course.thumbnail}
-                            alt={course.title}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
+                  {assignedPrograms.slice(0, 4).map((p) => {
+                    if (!p.program) return null;
+                    const percent = p.progress?.percent ?? 0;
+                    const completed = p.progress?.completedLessons ?? 0;
+                    const total = p.progress?.totalLessons ?? 0;
+                    return (
+                      <div
+                        key={p.assignmentId}
+                        className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row"
+                      >
+                        <div className="h-20 w-32 shrink-0 overflow-hidden rounded-lg bg-muted">
                           <div className="flex h-full w-full items-center justify-center bg-primary/10">
                             <BookOpen className="h-8 w-8 text-primary" />
                           </div>
-                        )}
-                      </div>
-                      <div className="flex flex-1 flex-col justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold">{course.title}</h3>
-                            <Badge variant={getLevelBadgeVariant(course.level)}>
-                              {getLevelLabel(course.level)}
-                            </Badge>
+                        </div>
+                        <div className="flex flex-1 flex-col justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold">{p.program.title}</h3>
+                              {getStatusBadge(p.status)}
+                            </div>
+                            {p.program.description && (
+                              <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
+                                {p.program.description}
+                              </p>
+                            )}
                           </div>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {course.description}
-                          </p>
-                        </div>
-                        <div className="mt-2 flex items-center gap-4">
-                          <Progress value={0} className="h-2 flex-1" />
-                          <span className="text-sm font-medium">0%</span>
-                          <Button size="sm" asChild>
-                            <Link href={`/dashboard/programs/${course.id}`}>
-                              <Play className="mr-1 h-4 w-4" />
-                              Tiếp tục
-                            </Link>
-                          </Button>
+                          <div className="mt-2 flex items-center gap-4">
+                            <div className="flex-1">
+                              <div className="mb-1 flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  {completed}/{total} bài học
+                                </span>
+                                <span className="font-medium">{percent}%</span>
+                              </div>
+                              <Progress value={percent} className="h-2" />
+                            </div>
+                            <Button size="sm" asChild>
+                              <Link href={`/dashboard/programs/${p.program.id}`}>
+                                <Play className="mr-1 h-4 w-4" />
+                                {p.status === "not_started" ? "Bắt đầu" : "Tiếp tục"}
+                              </Link>
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Featured Courses */}
-        <div>
+        {/* Sidebar */}
+        <div className="space-y-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Chương trình nổi bật</CardTitle>
+            <CardHeader>
+              <CardTitle>Tổng quan</CardTitle>
             </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="space-y-2">
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="h-3 w-1/2" />
-                    </div>
-                  ))}
+            <CardContent className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="text-muted-foreground">Tiến độ trung bình</span>
+                  <span className="font-medium">{stats.averageProgress}%</span>
                 </div>
-              ) : featuredCourses.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">
-                  Chưa có chương trình nào.
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {featuredCourses.map((course) => (
-                    <Link
-                      key={course.id}
-                      href={`/dashboard/programs/${course.id}`}
-                      className="block rounded-lg border p-3 transition-colors hover:bg-muted/50"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium">{course.title}</h4>
-                          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                            <Badge
-                              variant="outline"
-                              className="text-xs"
-                            >
-                              {getLevelLabel(course.level)}
-                            </Badge>
-                            <span>•</span>
-                            <span>{course.enrolledCount ?? 0} học viên</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 text-yellow-500">
-                          <Star className="h-4 w-4 fill-current" />
-                          <span className="text-sm font-medium">
-                            {(course.averageRating ?? 0).toFixed(1)}
-                          </span>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
+                <Progress value={stats.averageProgress} className="h-2" />
+              </div>
+              <div className="pt-2 border-t space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Đang học</span>
+                  <span className="font-medium">{stats.inProgressPrograms}</span>
                 </div>
-              )}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Hoàn thành</span>
+                  <span className="font-medium">{stats.completedPrograms}</span>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
-          <Card className="mt-6">
+          <Card>
             <CardHeader>
               <CardTitle>Thao tác nhanh</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button variant="outline" className="w-full justify-start" asChild>
+              <Button variant="outline" className="w-full justify-between" asChild>
                 <Link href="/dashboard/programs">
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  Khám phá chương trình
+                  <span className="flex items-center">
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    Tất cả chương trình
+                  </span>
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button variant="outline" className="w-full justify-between" asChild>
+                <Link href="/dashboard/profile">
+                  <span className="flex items-center">
+                    <TrendingUp className="mr-2 h-4 w-4" />
+                    Tiến độ của tôi
+                  </span>
+                  <ChevronRight className="h-4 w-4" />
                 </Link>
               </Button>
             </CardContent>

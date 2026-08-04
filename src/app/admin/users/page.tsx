@@ -48,6 +48,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageContainer } from "@/components/layout";
 import { useAuth, useCollection, useDebouncedValue, useDocMutation } from "@/hooks";
 import { doc, serverTimestamp } from "firebase/firestore";
@@ -775,10 +782,10 @@ export default function AdminUsersPage() {
 
       {/* Dialog tạo người dùng mới */}
       <Dialog open={createOpen} onOpenChange={(o) => !o && closeCreate()}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="h-4 w-4" />
+              <UserPlus className="h-5 w-5" />
               {isManager ? "Thêm nhân viên mới" : "Tạo người dùng mới"}
             </DialogTitle>
             <DialogDescription>
@@ -788,195 +795,231 @@ export default function AdminUsersPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="grid gap-1.5">
-              <Label htmlFor="cu-email">Email *</Label>
-              <Input
-                id="cu-email"
-                type="email"
-                placeholder="user@company.com"
-                value={createForm.email}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, email: e.target.value }))
-                }
-                disabled={createLoading}
-                autoComplete="off"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="cu-password">Mật khẩu *</Label>
-              <Input
-                id="cu-password"
-                type="password"
-                placeholder="Tối thiểu 6 ký tự"
-                value={createForm.password}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, password: e.target.value }))
-                }
-                disabled={createLoading}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="cu-name">Tên hiển thị *</Label>
-              <Input
-                id="cu-name"
-                placeholder="Nguyễn Văn A"
-                value={createForm.displayName}
-                onChange={(e) =>
-                  setCreateForm((f) => ({
-                    ...f,
-                    displayName: e.target.value,
-                  }))
-                }
-                disabled={createLoading}
-              />
-            </div>
-            
-            {/* Role selection - Manager chỉ thấy Employee */}
-            <div className="grid gap-1.5">
-              <Label htmlFor="cu-role">Vai trò</Label>
-              {isAdmin ? (
-                <select
-                  id="cu-role"
-                  value={createForm.role}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({
-                      ...f,
-                      role: e.target.value as UserRole,
-                    }))
-                  }
-                  disabled={createLoading}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="employee">Nhân viên</option>
-                  <option value="manager">Quản lý</option>
-                  <option value="trainer">Giảng viên</option>
-                  <option value="hr">Nhân sự</option>
-                  <option value="admin">Quản trị</option>
-                </select>
-              ) : (
-                <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
-                  <Badge variant="secondary">Nhân viên</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    Bạn chỉ có thể tạo tài khoản Nhân viên
-                  </span>
+          <div className="space-y-5">
+            {/* Thông tin đăng nhập */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+                <LucideUser className="h-4 w-4" />
+                Thông tin đăng nhập
+              </h3>
+              <div className="space-y-3 pl-6">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cu-email">Email *</Label>
+                  <Input
+                    id="cu-email"
+                    type="email"
+                    placeholder="user@company.com"
+                    value={createForm.email}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({ ...f, email: e.target.value }))
+                    }
+                    disabled={createLoading}
+                    autoComplete="off"
+                  />
                 </div>
-              )}
-            </div>
-
-            {/* Manager selection */}
-            <div className="grid gap-1.5">
-              <Label htmlFor="cu-manager">
-                <Building2 className="inline h-4 w-4 mr-1" />
-                Người quản lý
-              </Label>
-              {isAdmin ? (
-                <select
-                  id="cu-manager"
-                  value={createForm.managerId}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, managerId: e.target.value }))
-                  }
-                  disabled={createLoading}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Không có</option>
-                  {managers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.displayName} ({m.email})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
-                  <Badge variant="default">
-                    {managers.find((m) => m.id === currentUserId)?.displayName ?? "Bạn"}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    Nhân viên sẽ được gán quản lý bởi bạn
-                  </span>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cu-password">Mật khẩu *</Label>
+                  <Input
+                    id="cu-password"
+                    type="password"
+                    placeholder="Tối thiểu 6 ký tự"
+                    value={createForm.password}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({ ...f, password: e.target.value }))
+                    }
+                    disabled={createLoading}
+                    autoComplete="new-password"
+                  />
                 </div>
-              )}
+              </div>
             </div>
 
-            <div className="grid gap-1.5">
-              <Label htmlFor="cu-dept">Phòng ban</Label>
-              <Input
-                id="cu-dept"
-                placeholder="VD: Kỹ thuật, Kinh doanh..."
-                value={createForm.department}
-                onChange={(e) =>
-                  setCreateForm((f) => ({
-                    ...f,
-                    department: e.target.value,
-                  }))
-                }
-                disabled={createLoading}
-              />
+            {/* Thông tin cá nhân */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                Thông tin cá nhân
+              </h3>
+              <div className="space-y-3 pl-6">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cu-name">Tên hiển thị *</Label>
+                  <Input
+                    id="cu-name"
+                    placeholder="Nguyễn Văn A"
+                    value={createForm.displayName}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({
+                        ...f,
+                        displayName: e.target.value,
+                      }))
+                    }
+                    disabled={createLoading}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cu-dept">Phòng ban</Label>
+                  <Input
+                    id="cu-dept"
+                    placeholder="VD: Kỹ thuật, Kinh doanh..."
+                    value={createForm.department}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({
+                        ...f,
+                        department: e.target.value,
+                      }))
+                    }
+                    disabled={createLoading}
+                  />
+                </div>
+              </div>
             </div>
 
-            {/* Programs selection */}
-            {availablePrograms.length > 0 && (
-              <div className="grid gap-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>Chương trình đào tạo ({selectedProgramIds.size} đã chọn)</Label>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-xs"
-                      onClick={() => setSelectedProgramIds(new Set())}
-                    >
-                      Bỏ chọn
-                    </Button>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-xs"
-                      onClick={() =>
-                        setSelectedProgramIds(new Set(availablePrograms.map((p) => p.id)))
+            {/* Phân quyền */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Phân quyền
+              </h3>
+              <div className="space-y-3 pl-6">
+                {/* Role selection */}
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cu-role">Vai trò</Label>
+                  {isAdmin ? (
+                    <Select
+                      value={createForm.role}
+                      onValueChange={(v) =>
+                        setCreateForm((f) => ({
+                          ...f,
+                          role: v as UserRole,
+                        }))
                       }
+                      disabled={createLoading}
                     >
-                      Chọn tất cả
-                    </Button>
+                      <SelectTrigger id="cu-role">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="employee">Nhân viên</SelectItem>
+                        <SelectItem value="manager">Quản lý</SelectItem>
+                        <SelectItem value="trainer">Giảng viên</SelectItem>
+                        <SelectItem value="hr">Nhân sự</SelectItem>
+                        <SelectItem value="admin">Quản trị</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
+                      <Badge variant="secondary">Nhân viên</Badge>
+                      <span className="text-sm text-muted-foreground">
+                        Bạn chỉ có thể tạo tài khoản Nhân viên
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Manager selection */}
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cu-manager">Người quản lý</Label>
+                  {isAdmin ? (
+                    <Select
+                      value={createForm.managerId}
+                      onValueChange={(v) =>
+                        setCreateForm((f) => ({ ...f, managerId: v }))
+                      }
+                      disabled={createLoading}
+                    >
+                      <SelectTrigger id="cu-manager">
+                        <SelectValue placeholder="Chọn người quản lý" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Không có</SelectItem>
+                        {managers.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
+                      <Badge variant="default">
+                        {managers.find((m) => m.id === currentUserId)?.displayName ?? "Bạn"}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        Nhân viên sẽ được gán quản lý bởi bạn
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Chương trình đào tạo */}
+            {availablePrograms.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Chương trình đào tạo
+                </h3>
+                <div className="pl-6 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>{selectedProgramIds.size} chương trình đã chọn</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-muted-foreground"
+                        onClick={() => setSelectedProgramIds(new Set())}
+                      >
+                        Bỏ chọn
+                      </Button>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-muted-foreground"
+                        onClick={() =>
+                          setSelectedProgramIds(new Set(availablePrograms.map((p) => p.id)))
+                        }
+                      >
+                        Chọn tất cả
+                      </Button>
+                    </div>
                   </div>
+                  <div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-1">
+                    {availablePrograms.map((p) => (
+                      <label
+                        key={p.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted/50"
+                      >
+                        <Checkbox
+                          checked={selectedProgramIds.has(p.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedProgramIds((s) => {
+                              const ns = new Set(s);
+                              if (checked) ns.add(p.id);
+                              else ns.delete(p.id);
+                              return ns;
+                            });
+                          }}
+                        />
+                        <span className="text-sm flex-1">{p.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Nhân viên sẽ được gán các chương trình đã chọn sau khi tạo.
+                  </p>
                 </div>
-                <div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-1">
-                  {availablePrograms.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted/50"
-                    >
-                      <Checkbox
-                        checked={selectedProgramIds.has(p.id)}
-                        onCheckedChange={(checked) => {
-                          setSelectedProgramIds((s) => {
-                            const ns = new Set(s);
-                            if (checked) ns.add(p.id);
-                            else ns.delete(p.id);
-                            return ns;
-                          });
-                        }}
-                      />
-                      <span className="text-sm flex-1">{p.title}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Nhân viên sẽ được gán các chương trình đã chọn sau khi tạo.
-                </p>
               </div>
             )}
 
             {createError && (
               <Alert variant="destructive">
-                <AlertDescription className="text-xs">{createError}</AlertDescription>
+                <AlertDescription className="text-sm">{createError}</AlertDescription>
               </Alert>
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={closeCreate} disabled={createLoading}>
               Hủy
             </Button>

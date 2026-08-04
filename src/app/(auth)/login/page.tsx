@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/use-auth";
+import type { FirebaseError } from "firebase/app";
 
 const loginSchema = z.object({
   email: z.string().email("Email không hợp lệ"),
@@ -43,17 +44,38 @@ export default function LoginPage() {
       await login(data.email, data.password);
       router.push("/dashboard");
     } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Đăng nhập thất bại";
-      if (errorMessage.includes("user-not-found")) {
-        setError("Email không tồn tại trong hệ thống");
-      } else if (errorMessage.includes("wrong-password")) {
-        setError("Mật khẩu không đúng");
-      } else if (errorMessage.includes("invalid-email")) {
-        setError("Email không hợp lệ");
-      } else {
-        setError("Đăng nhập thất bại. Vui lòng thử lại.");
+      let errorMessage = "Đăng nhập thất bại. Vui lòng thử lại.";
+
+      if (err instanceof Error) {
+        const firebaseError = err as FirebaseError;
+        // Firebase Auth error codes mapping
+        switch (firebaseError.code) {
+          case "auth/user-not-found":
+            errorMessage = "Email không tồn tại trong hệ thống";
+            break;
+          case "auth/wrong-password":
+            errorMessage = "Mật khẩu không đúng";
+            break;
+          case "auth/invalid-email":
+            errorMessage = "Email không hợp lệ";
+            break;
+          case "auth/user-disabled":
+            errorMessage = "Tài khoản đã bị vô hiệu hóa";
+            break;
+          case "auth/too-many-requests":
+            errorMessage = "Đã đăng nhập sai quá nhiều lần. Vui lòng thử lại sau.";
+            break;
+          case "auth/invalid-credential":
+            errorMessage = "Email hoặc mật khẩu không đúng";
+            break;
+          case "auth/network-request-failed":
+            errorMessage = "Lỗi kết nối mạng. Vui lòng kiểm tra internet.";
+            break;
+          default:
+            errorMessage = firebaseError.message || "Đăng nhập thất bại. Vui lòng thử lại.";
+        }
       }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -68,22 +90,7 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         {/* Logo + Brand */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-7 w-7 text-primary-foreground"
-            >
-              <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-              <path d="M6 12v5c3 3 10 3 12 0v-5" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold tracking-tight">Epath Training</h1>
+          <h1 className="text-4xl font-bold tracking-tight"><span className="text-[#0064B1]">L</span><span className="text-[#FBB911]">P</span> <span className="text-2xl font-medium text-[#646464]">Training Hub</span></h1>
         </div>
 
         {/* Card */}
@@ -175,20 +182,25 @@ export default function LoginPage() {
 
           <div className="mt-6 text-center text-sm">
             <span className="text-muted-foreground">
-              Chưa có tài khoản?{" "}
+              Chưa có tài khoản, liên hệ quản lí ngay,
             </span>
-            <Link
-              href="/register"
-              className="font-medium text-primary hover:underline"
-            >
-              Đăng ký ngay
-            </Link>
+            <br />
+            <span className="text-muted-foreground">
+              hoặc liên hệ với{" "}
+              <a
+                href="mailto:it@company.com"
+                className="font-medium text-primary hover:underline"
+              >
+                IT
+              </a>{" "}
+              để được hỗ trợ
+            </span>
           </div>
         </div>
 
         {/* Footer */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          © 2026 Epath Training. All rights reserved.
+          © 2026 LP Training Hub. All rights reserved.
         </p>
       </div>
     </div>

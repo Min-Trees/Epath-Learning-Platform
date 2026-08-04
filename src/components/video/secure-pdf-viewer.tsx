@@ -308,17 +308,6 @@ export function SecurePdfViewer({
           </div>
         </div>
       )}
-
-      <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3 w-3" />
-          PDF render sang HTML · URL S3 được ẩn hoàn toàn
-        </p>
-      </div>
-
-      {fileName && (
-        <p className="text-xs text-muted-foreground">File: {fileName}</p>
-      )}
     </div>
   );
 }

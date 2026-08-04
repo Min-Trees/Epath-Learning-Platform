@@ -3,8 +3,8 @@ import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
 
 /**
- * GET /api/assignments?userId=&programId=
- *  - Admin: lấy tất cả assignment (lọc theo userId / programId nếu có)
+ * GET /api/assignments?userId=&programId=&status=
+ *  - Admin: lấy tất cả assignment (lọc theo userId / programId / status nếu có)
  *  - Employee: chỉ lấy của chính mình
  */
 export async function GET(req: NextRequest) {
@@ -15,11 +15,13 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const userIdFilter = searchParams.get("userId");
     const programIdFilter = searchParams.get("programId");
+    const statusFilter = searchParams.get("status");
 
     let ref: FirebaseFirestore.Query = adminDb.collection("assignments");
     if (isAdmin(me)) {
       if (userIdFilter) ref = ref.where("userId", "==", userIdFilter);
       if (programIdFilter) ref = ref.where("programId", "==", programIdFilter);
+      if (statusFilter) ref = ref.where("status", "==", statusFilter);
     } else {
       ref = ref.where("userId", "==", me.uid);
     }

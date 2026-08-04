@@ -36,7 +36,37 @@ export async function GET(req: NextRequest) {
       progress?: { totalLessons: number; completedLessons: number; percent: number };
     }> = [];
 
+    // Deduplicate: map key = programId, giữ assignment có status ưu tiên nhất
+    const STATUS_PRIORITY: Record<string, number> = {
+      completed: 3,
+      in_progress: 2,
+      not_started: 1,
+    };
+    const dedupMap = new Map<string, typeof assignmentsSnap.docs[number]>();
+
     for (const a of assignmentsSnap.docs) {
+      const aData = a.data() as {
+        userId: string;
+        programId: string;
+        status: string;
+        assignedAt?: { toDate?: () => Date } | Date;
+      };
+      const key = aData.programId;
+      const existing = dedupMap.get(key);
+      if (!existing) {
+        dedupMap.set(key, a);
+      } else {
+        const existingStatus = (existing.data() as typeof aData).status;
+        const newStatus = aData.status;
+        const existingPriority = STATUS_PRIORITY[existingStatus] ?? 0;
+        const newPriority = STATUS_PRIORITY[newStatus] ?? 0;
+        if (newPriority > existingPriority) {
+          dedupMap.set(key, a);
+        }
+      }
+    }
+
+    for (const a of dedupMap.values()) {
       const aData = a.data() as {
         userId: string;
         programId: string;

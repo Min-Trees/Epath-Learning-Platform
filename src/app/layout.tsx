@@ -7,10 +7,13 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: {
-    default: "Epath System Training",
-    template: "%s | Epath System Training",
+    default: "LP Training Hub",
+    template: "%s | LP Training Hub",
   },
   description: "Hệ thống đào tạo nhân viên doanh nghiệp",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export const viewport: Viewport = {

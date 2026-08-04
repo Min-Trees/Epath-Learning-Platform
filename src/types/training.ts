@@ -209,3 +209,47 @@ export interface PresignDownloadResponse {
   fileKey: string;
   mimeType?: string;
 }
+
+// ─── Ticket (Báo cáo lỗi/Hỗ trợ) ─────────────────────────────
+export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export type TicketCategory =
+  | "bug"
+  | "video_issue"
+  | "quiz_issue"
+  | "login_issue"
+  | "content_error"
+  | "suggestion"
+  | "other";
+
+export interface Ticket {
+  id: string;
+  userId: string;
+  userEmail?: string;
+  userName?: string;
+  title: string;
+  description: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  screenshotUrl?: string;
+  createdAt: Date;
+  updatedAt?: Date;
+  resolvedAt?: Date;
+  adminNote?: string;
+}
+
+export interface CreateTicketRequest {
+  title: string;
+  description: string;
+  category: TicketCategory;
+  priority?: TicketPriority;
+  screenshotUrl?: string;
+}
+
+export interface TicketListResponse {
+  items: Ticket[];
+  total: number;
+  page: number;
+  pageSize: number;
+}

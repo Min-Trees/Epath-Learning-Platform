@@ -15,6 +15,9 @@ import type {
   PresignDownloadResponse,
   ProgramReportSummary,
   UserReportSummary,
+  Ticket,
+  CreateTicketRequest,
+  TicketListResponse,
 } from "@/types/training";
 
 // ─── Programs ────────────────────────────────────────────────
@@ -146,10 +149,11 @@ export const accessService = {
 
 // ─── Assignments ─────────────────────────────────────────────
 export const assignmentService = {
-  list: (params: { userId?: string; programId?: string } = {}) => {
+  list: (params: { userId?: string; programId?: string; status?: string } = {}) => {
     const q = new URLSearchParams();
     if (params.userId) q.set("userId", params.userId);
     if (params.programId) q.set("programId", params.programId);
+    if (params.status) q.set("status", params.status);
     const qs = q.toString();
     return apiGet<{ items: Assignment[] }>(
       `/api/assignments${qs ? "?" + qs : ""}`
@@ -166,6 +170,14 @@ export const assignmentService = {
         userId
       )}&programId=${encodeURIComponent(programId)}`
     ),
+  unassignBatch: (items: Array<{ userId: string; programId: string }>) =>
+    apiDelete<{ success: string[]; failed: string[] }>("/api/assignments/batch", items),
+  /** Gán nhiều chương trình cho một nhân viên */
+  assignProgramsToUser: (userId: string, programIds: string[]) =>
+    apiPost<{ created: string[]; skipped: string[] }>("/api/assignments/batch-assign", {
+      userId,
+      programIds,
+    }),
 };
 
 // ─── My programs (employee) ──────────────────────────────────
@@ -211,4 +223,38 @@ export const reportService = {
     ),
   userProgress: (userId: string) =>
     apiGet<UserReportSummary>(`/api/reports/users/${userId}/progress`),
+};
+
+// ─── Tickets (Báo cáo lỗi) ───────────────────────────────────
+export const ticketService = {
+  list: (params: {
+    status?: string;
+    category?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (params.status) q.set("status", params.status);
+    if (params.category) q.set("category", params.category);
+    if (params.page) q.set("page", String(params.page));
+    if (params.pageSize) q.set("pageSize", String(params.pageSize));
+    const qs = q.toString();
+    return apiGet<TicketListResponse>(`/api/tickets${qs ? "?" + qs : ""}`);
+  },
+
+  get: (id: string) => apiGet<Ticket>(`/api/tickets/${id}`),
+
+  create: (data: CreateTicketRequest) =>
+    apiPost<{ ticketId: string }>("/api/tickets", data),
+
+  updateStatus: (id: string, status: string, adminNote?: string) =>
+    apiPut(`/api/tickets/${id}`, { status, adminNote }),
+
+  getMyTickets: (params: { page?: number; pageSize?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.page) q.set("page", String(params.page));
+    if (params.pageSize) q.set("pageSize", String(params.pageSize));
+    const qs = q.toString();
+    return apiGet<TicketListResponse>(`/api/tickets/my${qs ? "?" + qs : ""}`);
+  },
 };

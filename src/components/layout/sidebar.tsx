@@ -1,18 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
-  GraduationCap,
   Users,
   Settings,
+  FileQuestion,
   BarChart3,
   ChevronLeft,
   ChevronRight,
   UserPlus,
   X,
+  Bug,
 } from "lucide-react";
 import { cn } from "@/utils";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,11 @@ const navItems: NavItem[] = [
     title: "Chương trình của tôi",
     href: "/dashboard/programs",
     icon: BookOpen,
+  },
+  {
+    title: "Báo cáo lỗi",
+    href: "/dashboard/tickets",
+    icon: Bug,
   },
   {
     title: "Hồ sơ",
@@ -79,6 +86,12 @@ const adminItems: NavItem[] = [
     href: "/admin/reports",
     icon: BarChart3,
     roles: ["admin", "manager", "hr"],
+  },
+  {
+    title: "Bài kiểm tra",
+    href: "/admin/tests",
+    icon: FileQuestion,
+    roles: ["admin", "manager"],
   },
 ];
 
@@ -150,18 +163,11 @@ export function Sidebar() {
         <div className="flex h-14 items-center border-b px-4">
           {!sidebarCollapsed ? (
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                <GraduationCap className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <span className="font-semibold">Epath Training</span>
+              <span className="text-2xl font-bold"><span className="text-[#0064B1]">L</span><span className="text-[#FBB911]">P</span></span>
+              <span className="text-sm font-medium text-[#646464]">Training Hub</span>
             </Link>
           ) : (
-            <Link
-              href="/dashboard"
-              className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-primary"
-            >
-              <GraduationCap className="h-5 w-5 text-primary-foreground" />
-            </Link>
+            <Link href="/dashboard" className="text-2xl font-bold"><span className="text-[#0064B1]">L</span><span className="text-[#FBB911]">P</span></Link>
           )}
         </div>
 
@@ -252,10 +258,8 @@ export function Sidebar() {
         {/* Close button */}
         <div className="flex h-14 items-center justify-between border-b px-4">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <GraduationCap className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="font-semibold">Epath Training</span>
+            <span className="text-2xl font-bold"><span className="text-[#0064B1]">L</span><span className="text-[#FBB911]">P</span></span>
+            <span className="text-sm font-medium text-[#646464]">Training Hub</span>
           </Link>
           <Button
             variant="ghost"
