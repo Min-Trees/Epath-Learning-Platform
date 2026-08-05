@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 </head>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
   <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">🔑 E-Path Training</h1>
+    <h1 style="color: white; margin: 0; font-size: 24px;">🔑 LittlePeople Training Hub</h1>
   </div>
   
   <div style="background: #fff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
     
     <p style="color: #999; font-size: 12px; text-align: center;">
-      Email này được gửi tự động từ E-Path Training System.<br>
+      Email này được gửi tự động từ LittlePeople Training Hub.<br>
       Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.
     </p>
   </div>
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     try {
       await sendEmail({
         to: email,
-        subject: "🔑 Mật khẩu mới - E-Path Training System",
+        subject: "🔑 Mật khẩu mới - LittlePeople Training Hub",
         html: emailHtml,
       });
     } catch (emailError) {

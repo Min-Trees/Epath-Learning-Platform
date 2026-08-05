@@ -28,7 +28,7 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
   const transport = getTransporter();
 
   await transport.sendMail({
-    from: `"E-Path Training" <${process.env.MAIL_USERNAME}>`,
+    from: `"IT LittlePeople Support" <${process.env.MAIL_USERNAME}>`,
     to: options.to,
     subject: options.subject,
     html: options.html,
