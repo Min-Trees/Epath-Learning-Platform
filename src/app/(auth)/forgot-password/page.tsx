@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Mail } from "lucide-react";
+import { Loader2, Mail, KeyRound, CheckCircle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Card, CardContent } from "@/components/ui/card";
-import { useAuth } from "@/hooks/use-auth";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiPost } from "@/lib/api-client";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Email không hợp lệ"),
@@ -20,7 +20,6 @@ const forgotPasswordSchema = z.object({
 type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 
 export default function ForgotPasswordPage() {
-  const { resetPassword } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -38,11 +37,14 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
-      await resetPassword(data.email);
-      setSuccess(true);
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Có lỗi xảy ra";
+      const res = await apiPost("/api/auth/forgot-password", { email: data.email });
+      if (res.success) {
+        setSuccess(true);
+      } else {
+        setError((res as { error?: string }).error ?? "Có lỗi xảy ra. Vui lòng thử lại.");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Có lỗi xảy ra";
       if (errorMessage.includes("user-not-found")) {
         setError("Email không tồn tại trong hệ thống");
       } else {
@@ -54,73 +56,116 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-bold">Quên mật khẩu?</h1>
-        <p className="text-sm text-muted-foreground">
-          Nhập email của bạn để nhận liên kết đặt lại mật khẩu
-        </p>
-      </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Card className="border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-900/20">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-                <Mail className="h-5 w-5 text-green-600 dark:text-green-400" />
-              </div>
-              <div>
-                <p className="font-medium text-green-900 dark:text-green-400">
-                  Email đã được gửi!
-                </p>
-                <p className="text-sm text-green-700 dark:text-green-500">
-                  Kiểm tra hộp thư của bạn để đặt lại mật khẩu.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!success && (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="email@company.com"
-              {...register("email")}
-              className={errors.email ? "border-destructive" : ""}
-            />
-            {errors.email && (
-              <p className="text-sm text-destructive">{errors.email.message}</p>
-            )}
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
+      <div className="w-full max-w-md space-y-6">
+        {/* Logo & Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+            <KeyRound className="h-8 w-8 text-primary" />
           </div>
+          <h1 className="text-3xl font-bold tracking-tight">Quên mật khẩu?</h1>
+          <p className="text-muted-foreground">
+            Không sao cả! Nhập email của bạn, chúng tôi sẽ gửi mật khẩu mới.
+          </p>
+        </div>
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Đang gửi...
-              </>
-            ) : (
-              "Gửi liên kết đặt lại"
-            )}
-          </Button>
-        </form>
-      )}
+        {/* Success State */}
+        {success ? (
+          <Card className="shadow-lg border-green-200 dark:border-green-800">
+            <CardContent className="pt-6 pb-8">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30">
+                  <CheckCircle className="h-8 w-8 text-green-600 dark:text-green-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-green-700 dark:text-green-400">
+                    Email đã được gửi!
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Kiểm tra hộp thư <span className="font-medium">spam</span> nếu không thấy email.
+                  </p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-4 w-full max-w-sm">
+                  <p className="text-sm text-muted-foreground">
+                    Mật khẩu mới có dạng: <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">epath@xxx</code>
+                  </p>
+                </div>
+                <Button variant="outline" asChild className="mt-4">
+                  <Link href="/login">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Quay lại đăng nhập
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          /* Form */
+          <Card className="shadow-lg">
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-xl">Khôi phục tài khoản</CardTitle>
+              <CardDescription>
+                Nhập email đã đăng ký để nhận mật khẩu mới
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {error && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
 
-      <div className="text-center text-sm">
-        <Link href="/login" className="text-primary hover:underline">
-          Quay lại đăng nhập
-        </Link>
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="email@company.com"
+                      {...register("email")}
+                      className={`pl-10 ${errors.email ? "border-destructive" : ""}`}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  {errors.email && (
+                    <p className="text-sm text-destructive">{errors.email.message}</p>
+                  )}
+                </div>
+
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Đang gửi...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="mr-2 h-4 w-4" />
+                      Gửi mật khẩu mới
+                    </>
+                  )}
+                </Button>
+              </form>
+
+              <div className="mt-6 text-center text-sm">
+                <Link
+                  href="/login"
+                  className="inline-flex items-center text-primary hover:underline"
+                >
+                  <ArrowLeft className="mr-1 h-3 w-3" />
+                  Quay lại đăng nhập
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Footer */}
+        <p className="text-center text-xs text-muted-foreground">
+          E-Path Training System © 2024
+        </p>
       </div>
     </div>
   );
