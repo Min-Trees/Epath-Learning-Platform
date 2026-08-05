@@ -16,6 +16,9 @@ import {
   Users,
   Building2,
   Filter,
+  Key,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -335,6 +338,47 @@ export default function AdminUsersPage() {
     [currentUser, isAdmin, deleteUser]
   );
 
+  const handleResetPassword = useCallback(
+    async (target: User) => {
+      if (!currentUser) return;
+
+      if (!isAdmin && !isManager) {
+        setError("Bạn không có quyền reset mật khẩu.");
+        return;
+      }
+
+      if (isManager && target.managerId !== currentUserId) {
+        setError("Bạn chỉ có thể reset mật khẩu của nhân viên thuộc quyền quản lý của bạn.");
+        return;
+      }
+
+      if (target.id === currentUser.id) {
+        setError("Không thể reset mật khẩu của chính bạn.");
+        return;
+      }
+
+      if (!window.confirm(`Reset mật khẩu của "${target.displayName}" về "epath@123"?`)) return;
+
+      setActionId(target.id);
+      setError(null);
+      setSuccess(null);
+
+      try {
+        const res = await apiPost("/api/admin/users/reset-password", { userId: target.id });
+        if (res.success) {
+          setSuccess(`Đã reset mật khẩu của "${target.displayName}" về "epath@123"`);
+        } else {
+          setError((res as { error?: string }).error ?? "Lỗi reset mật khẩu");
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setActionId(null);
+      }
+    },
+    [currentUser, isAdmin, isManager, currentUserId]
+  );
+
   // Create dialog state
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -347,6 +391,14 @@ export default function AdminUsersPage() {
   });
   const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
+
+  // Credential dialog state (show after successful creation)
+  const [showCredentialDialog, setShowCredentialDialog] = useState(false);
+  const [newUserCredentials, setNewUserCredentials] = useState<{
+    email: string;
+    password: string;
+    displayName: string;
+  } | null>(null);
 
   // Programs for assignment
   const [availablePrograms, setAvailablePrograms] = useState<Program[]>([]);
@@ -453,9 +505,9 @@ export default function AdminUsersPage() {
       if (!res.success || !res.data) {
         throw new Error(res.error ?? "Tạo người dùng thất bại");
       }
-      setSuccess(
-        `Đã tạo người dùng "${res.data.displayName}" (${res.data.email}).`
-      );
+      // Store credentials and show dialog
+      setNewUserCredentials({ email, password, displayName });
+      setShowCredentialDialog(true);
       closeCreate();
       void refetch();
     } catch (e) {
@@ -752,6 +804,10 @@ export default function AdminUsersPage() {
                               <Edit className="mr-2 h-4 w-4" />
                               {u.isActive ? "Khóa tài khoản" : "Mở khóa"}
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleResetPassword(u)}>
+                              <Key className="mr-2 h-4 w-4" />
+                              Reset mật khẩu
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => (window.location.href = `mailto:${u.email}`)}
                             >
@@ -1039,6 +1095,187 @@ export default function AdminUsersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Credential Info Dialog */}
+      <CredentialDialog
+        open={showCredentialDialog}
+        onOpenChange={setShowCredentialDialog}
+        credentials={newUserCredentials}
+      />
     </PageContainer>
+  );
+}
+
+interface CredentialDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  credentials: {
+    email: string;
+    password: string;
+    displayName: string;
+  } | null;
+}
+
+function CredentialDialog({ open, onOpenChange, credentials }: CredentialDialogProps) {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopy = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    }
+  };
+
+  const handleCopyAll = async () => {
+    if (!credentials) return;
+    const text = `Thông tin đăng nhập LP Training Hub:
+
+🔗 Link: https://lp-traininghub.vercel.app/
+📧 Email: ${credentials.email}
+🔑 Mật khẩu: ${credentials.password}
+
+Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được thông tin này.`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField("all");
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      // Fallback
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+      setCopiedField("all");
+      setTimeout(() => setCopiedField(null), 2000);
+    }
+  };
+
+  if (!credentials) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-green-600">
+            <Check className="h-5 w-5" />
+            Tạo người dùng thành công!
+          </DialogTitle>
+          <DialogDescription>
+            Gửi thông tin đăng nhập cho nhân viên: {credentials.displayName}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          {/* Account info card */}
+          <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Tên nhân viên:</span>
+              <span className="font-medium">{credentials.displayName}</span>
+            </div>
+
+            {/* Link */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Link đăng nhập:</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => handleCopy("https://lp-traininghub.vercel.app/", "link")}
+                >
+                  {copiedField === "link" ? (
+                    <Check className="h-3 w-3 mr-1 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3 mr-1" />
+                  )}
+                  {copiedField === "link" ? "Đã copy" : "Copy"}
+                </Button>
+              </div>
+              <p className="text-sm font-mono bg-background p-2 rounded border">
+                https://lp-traininghub.vercel.app/
+              </p>
+            </div>
+
+            {/* Email */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Email:</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => handleCopy(credentials.email, "email")}
+                >
+                  {copiedField === "email" ? (
+                    <Check className="h-3 w-3 mr-1 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3 mr-1" />
+                  )}
+                  {copiedField === "email" ? "Đã copy" : "Copy"}
+                </Button>
+              </div>
+              <p className="text-sm font-mono bg-background p-2 rounded border">
+                {credentials.email}
+              </p>
+            </div>
+
+            {/* Password */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Mật khẩu:</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => handleCopy(credentials.password, "password")}
+                >
+                  {copiedField === "password" ? (
+                    <Check className="h-3 w-3 mr-1 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3 mr-1" />
+                  )}
+                  {copiedField === "password" ? "Đã copy" : "Copy"}
+                </Button>
+              </div>
+              <p className="text-sm font-mono bg-background p-2 rounded border">
+                {credentials.password}
+              </p>
+            </div>
+          </div>
+
+          <Alert variant="warning" className="text-xs">
+            <AlertDescription>
+              Nhắc nhở nhân viên đổi mật khẩu ngay sau khi đăng nhập lần đầu.
+            </AlertDescription>
+          </Alert>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={handleCopyAll}>
+            {copiedField === "all" ? (
+              <Check className="mr-2 h-4 w-4 text-green-500" />
+            ) : (
+              <Copy className="mr-2 h-4 w-4" />
+            )}
+            {copiedField === "all" ? "Đã copy tất cả" : "Copy tất cả"}
+          </Button>
+          <Button onClick={() => onOpenChange(false)}>Đóng</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
