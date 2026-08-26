@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 import type {
   ProgramReportSummary,
   UserReportSummary,
@@ -8,13 +8,15 @@ import type {
 
 /**
  * GET /api/reports/programs/:programId/progress
- *  Chỉ admin. Trả về tổng quan: tất cả user được gán + % hoàn thành.
+ *  - Admin: xem tất cả
+ *  - Manager: chỉ xem chương trình của họ (chỉ thống kê NV thuộc quyền)
+ *  Trả về tổng quan: tất cả user được gán + % hoàn thành.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden", 403);
     const { programId } = await ctx.params;
 
     const programSnap = await adminDb
@@ -22,8 +24,25 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
       .doc(programId)
       .get();
     if (!programSnap.exists) return bad("Program not found", 404);
-    const programData = programSnap.data() as { title?: string };
+    const programData = programSnap.data() as { title?: string; managerId?: string };
     const programTitle = programData.title ?? "(không tiêu đề)";
+
+    // Manager: kiểm tra program thuộc quyền
+    if (!isAdmin(me)) {
+      if (programData.managerId !== me.uid) {
+        return bad("Forbidden - bạn không có quyền xem báo cáo của chương trình này", 403);
+      }
+    }
+
+    // Manager: lấy danh sách nhân viên thuộc quyền để filter
+    let managedUserIds: Set<string> | null = null;
+    if (!isAdmin(me) && isManager(me)) {
+      const usersSnap = await adminDb
+        .collection("users")
+        .where("managerId", "==", me.uid)
+        .get();
+      managedUserIds = new Set(usersSnap.docs.map((d) => d.id));
+    }
 
     // Lấy assignments
     const assignsSnap = await adminDb
@@ -47,6 +66,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
 
     for (const a of assignsSnap.docs) {
       const aData = a.data() as { userId: string; status: string };
+
+      // Manager: chỉ thống kê NV thuộc quyền
+      if (managedUserIds !== null && !managedUserIds.has(aData.userId)) continue;
+
       const userSnap = await adminDb
         .collection("users")
         .doc(aData.userId)

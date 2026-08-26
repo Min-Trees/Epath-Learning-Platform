@@ -193,11 +193,13 @@ export function Header() {
                 <span className="hidden text-xs capitalize text-muted-foreground lg:block">
                   {user?.role === "admin"
                     ? "Quản trị"
-                    : user?.role === "hr"
-                      ? "Nhân sự"
-                      : user?.role === "trainer"
-                        ? "Giảng viên"
-                        : "Nhân viên"}
+                    : user?.role === "manager"
+                      ? "Quản lý"
+                      : user?.role === "hr"
+                        ? "Nhân sự"
+                        : user?.role === "trainer"
+                          ? "Giảng viên"
+                          : "Nhân viên"}
                 </span>
               </div>
               <ChevronDown className="hidden h-4 w-4 text-muted-foreground lg:block" />

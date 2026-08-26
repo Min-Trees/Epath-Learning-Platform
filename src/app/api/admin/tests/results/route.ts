@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 
 interface TestResult {
   id: string;
@@ -21,6 +21,7 @@ interface TestResult {
 /**
  * GET /api/admin/tests/results
  *  - Admin: trả về danh sách tất cả kết quả test
+ *  - Manager: chỉ trả về kết quả test của nhân viên thuộc quyền
  *  - Query params:
  *    - programId: lọc theo chương trình
  *    - userId: lọc theo user
@@ -29,11 +30,21 @@ export async function GET(req: NextRequest) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden", 403);
 
     const { searchParams } = new URL(req.url);
     const filterProgramId = searchParams.get("programId");
     const filterUserId = searchParams.get("userId");
+
+    // Lấy danh sách userId được phép xem (manager chỉ xem NV thuộc quyền)
+    let allowedUserIds: Set<string> | null = null;
+    if (isManager(me) && !isAdmin(me)) {
+      const usersSnap = await adminDb
+        .collection("users")
+        .where("managerId", "==", me.uid)
+        .get();
+      allowedUserIds = new Set(usersSnap.docs.map((d) => d.id));
+    }
 
     const progressSnap = await adminDb.collection("progress").get();
     const results: TestResult[] = [];
@@ -42,6 +53,9 @@ export async function GET(req: NextRequest) {
       const progressData = progressDoc.data();
       const userId = progressData.userId as string;
       const programId = progressData.programId as string;
+
+      // Manager: skip nếu user không thuộc quyền
+      if (allowedUserIds !== null && !allowedUserIds.has(userId)) continue;
 
       // Apply filters
       if (filterProgramId && filterProgramId !== programId) continue;

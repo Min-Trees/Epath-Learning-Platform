@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 
 /**
  * POST /api/programs/:programId/lessons/:lessonId/confirm-upload
  *  Body: { fileKey, fileMeta: { fileName, size, mimeType, duration? } }
  *  Lưu fileKey + fileMeta vào lesson. Đánh dấu hasTest = false (test là bước sau).
- *  Chỉ admin.
+ *  Admin: tất cả. Manager: chỉ lesson trong program của họ.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
   try {
@@ -21,6 +21,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
     };
     if (!body.fileKey) return bad("fileKey bắt buộc");
     if (!body.fileMeta) return bad("fileMeta bắt buộc");
+
+    // Kiểm tra quyền với manager
+    if (!isAdmin(me)) {
+      const progSnap = await adminDb.collection("programs").doc(programId).get();
+      if (!progSnap.exists) return bad("Program not found", 404);
+      const progData = progSnap.data() as { managerId?: string };
+      if (progData.managerId !== me.uid) {
+        return bad("Forbidden - bạn không có quyền upload vào lesson của chương trình này", 403);
+      }
+    }
 
     const ref = adminDb
       .collection("programs")

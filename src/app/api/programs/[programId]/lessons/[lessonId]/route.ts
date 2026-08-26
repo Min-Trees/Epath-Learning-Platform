@@ -57,7 +57,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
 /**
  * PUT /api/programs/:programId/lessons/:lessonId
  *  Body: { title?, order?, contentType?, textContent?, fileKey?, fileMeta?, allowedRoles? }
- *  Admin và Manager đều có thể sửa.
+ *  Admin: sửa tất cả. Manager: chỉ sửa lesson trong program của họ.
  */
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
   try {
@@ -66,11 +66,17 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
     if (!canManageLessons(me)) return bad("Forbidden - chỉ admin và manager", 403);
     const { programId, lessonId } = await ctx.params;
 
-    const ref = adminDb
-      .collection("programs")
-      .doc(programId)
-      .collection("lessons")
-      .doc(lessonId);
+    // Kiểm tra quyền: manager chỉ được sửa lesson trong program của họ
+    const progRef = adminDb.collection("programs").doc(programId);
+    const progSnap = await progRef.get();
+    if (!progSnap.exists) return bad("Program not found", 404);
+    const progData = progSnap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền sửa lesson trong chương trình này", 403);
+    }
+
+    const ref = progRef.collection("lessons").doc(lessonId);
     const snap = await ref.get();
     if (!snap.exists) return bad("Lesson not found", 404);
 
@@ -125,21 +131,27 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
 }
 
 /**
- * DELETE /api/programs/:programId/lessons/:lessonId - chỉ admin
+ * DELETE /api/programs/:programId/lessons/:lessonId
+ *  Admin: xóa tất cả. Manager: chỉ xóa lesson trong program của họ.
  *  Xóa cả test subcollection + progress lesson.
  */
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
     const { programId, lessonId } = await ctx.params;
 
-    const ref = adminDb
-      .collection("programs")
-      .doc(programId)
-      .collection("lessons")
-      .doc(lessonId);
+    // Kiểm tra quyền
+    const progRef = adminDb.collection("programs").doc(programId);
+    const progSnap = await progRef.get();
+    if (!progSnap.exists) return bad("Program not found", 404);
+    const progData = progSnap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền xóa lesson trong chương trình này", 403);
+    }
+
+    const ref = progRef.collection("lessons").doc(lessonId);
     const snap = await ref.get();
     if (!snap.exists) return bad("Lesson not found", 404);
 

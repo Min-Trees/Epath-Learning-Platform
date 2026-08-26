@@ -17,16 +17,22 @@ export async function GET(req: NextRequest) {
   const pageSize = parseInt(searchParams.get("pageSize") || "10");
 
   try {
-    let query = adminDb
+    // Query tickets by userId (single field, no composite index needed)
+    const query = adminDb
       .collection(TICKETS_COLLECTION)
-      .where("userId", "==", user.uid)
-      .orderBy("createdAt", "desc");
+      .where("userId", "==", user.uid);
 
+    // Get total count
     const totalSnapshot = await query.count().get();
     const total = totalSnapshot.data().count;
 
+    // Get paginated results with order
     const offset = (page - 1) * pageSize;
-    const snapshot = await query.offset(offset).limit(pageSize).get();
+    const snapshot = await query
+      .orderBy("createdAt", "desc")
+      .offset(offset)
+      .limit(pageSize)
+      .get();
 
     const items: Ticket[] = [];
     snapshot.forEach((doc) => {

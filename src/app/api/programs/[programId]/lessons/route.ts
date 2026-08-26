@@ -104,6 +104,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
     const progSnap = await programRef.get();
     if (!progSnap.exists) return bad("Program not found", 404);
 
+    // Kiểm tra quyền: manager chỉ được tạo lesson trong program của họ
+    const progData = progSnap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền tạo lesson trong chương trình này", 403);
+    }
+
     const data: Record<string, unknown> = {
       title,
       order: body.order ?? Date.now(),

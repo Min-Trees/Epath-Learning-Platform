@@ -7,6 +7,7 @@ import type {
   PublicTest,
   TestQuestion,
   TestSubmitResult,
+  TestSubmitDetailResult,
   Assignment,
   ProgramProgress,
   LessonProgress,
@@ -18,6 +19,7 @@ import type {
   Ticket,
   CreateTicketRequest,
   TicketListResponse,
+  QuestionType,
 } from "@/types/training";
 
 // ─── Programs ────────────────────────────────────────────────
@@ -89,6 +91,8 @@ export interface AdminLessonTest {
   passScore: number;
 }
 
+export type TestAnswers = (number | string)[]; // number for multiple choice, string for essay
+
 export const testService = {
   get: (programId: string, lessonId: string) =>
     apiGet<PublicTest>(
@@ -111,11 +115,21 @@ export const testService = {
   submit: (
     programId: string,
     lessonId: string,
-    answers: number[]
+    answers: TestAnswers
   ) =>
     apiPost<TestSubmitResult>(
       `/api/programs/${programId}/lessons/${lessonId}/test/submit`,
       { answers }
+    ),
+  /** Submit và lấy chi tiết kết quả từng câu (cho employee xem sau khi nộp) */
+  submitWithDetails: (
+    programId: string,
+    lessonId: string,
+    answers: TestAnswers
+  ) =>
+    apiPost<TestSubmitDetailResult>(
+      `/api/programs/${programId}/lessons/${lessonId}/test/submit`,
+      { answers, includeDetails: true }
     ),
 };
 
@@ -257,4 +271,6 @@ export const ticketService = {
     const qs = q.toString();
     return apiGet<TicketListResponse>(`/api/tickets/my${qs ? "?" + qs : ""}`);
   },
+
+  delete: (id: string) => apiDelete(`/api/tickets/${id}`),
 };

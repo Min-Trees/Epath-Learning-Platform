@@ -1,21 +1,30 @@
 import { NextRequest } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 
 /**
- * POST /api/programs/:programId/publish - chỉ admin
+ * POST /api/programs/:programId/publish
+ *  - Admin: publish mọi chương trình
+ *  - Manager: chỉ publish chương trình của họ
  *  Validate: phải có ít nhất 1 lesson. Set status = "published".
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isAdmin(me) && !isManager(me)) return bad("Forbidden - chỉ admin và manager", 403);
     const { programId } = await ctx.params;
 
     const ref = adminDb.collection("programs").doc(programId);
     const snap = await ref.get();
     if (!snap.exists) return bad("Program not found", 404);
+
+    // Manager: chỉ publish program của họ
+    const progData = snap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền publish chương trình này", 403);
+    }
 
     const lessonsSnap = await ref.collection("lessons").get();
     if (lessonsSnap.empty) {
@@ -35,19 +44,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
 }
 
 /**
- * DELETE /api/programs/:programId/publish - chỉ admin
+ * DELETE /api/programs/:programId/publish
+ *  - Admin: unpublish mọi chương trình
+ *  - Manager: chỉ unpublish chương trình của họ
  *  Unpublish: set status = "draft".
  */
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isAdmin(me) && !isManager(me)) return bad("Forbidden - chỉ admin và manager", 403);
     const { programId } = await ctx.params;
 
     const ref = adminDb.collection("programs").doc(programId);
     const snap = await ref.get();
     if (!snap.exists) return bad("Program not found", 404);
+
+    // Manager: chỉ unpublish program của họ
+    const progData = snap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền unpublish chương trình này", 403);
+    }
 
     await ref.update({
       status: "draft",

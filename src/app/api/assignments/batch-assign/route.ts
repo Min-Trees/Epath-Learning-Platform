@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 
 /**
  * POST /api/assignments/batch
  * Body: { userId: string, programIds: string[] }
- * Chỉ admin. Gán nhiều chương trình cho một nhân viên.
+ * - Admin: gán cho bất kỳ user nào
+ * - Manager: chỉ gán cho nhân viên thuộc quyền và program của họ
  * Trả về: { created: string[], skipped: string[] }
  */
 export async function POST(req: NextRequest) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isAdmin(me) && !isManager(me)) return bad("Forbidden", 403);
 
     const body = (await req.json().catch(() => ({}))) as {
       userId?: string;
@@ -28,17 +29,28 @@ export async function POST(req: NextRequest) {
     const userSnap = await adminDb.collection("users").doc(body.userId).get();
     if (!userSnap.exists) return bad("User not found", 404);
 
-    // Check all programs exist & published
-    const validProgramIds: string[] = [];
-    for (const programId of body.programIds) {
-      const progSnap = await adminDb.collection("programs").doc(programId).get();
-      if (progSnap.exists && (progSnap.data() as { status?: string })?.status === "published") {
-        validProgramIds.push(programId);
+    // Manager: chỉ gán được cho nhân viên thuộc quyền
+    if (!isAdmin(me)) {
+      const userData = userSnap.data() as { managerId?: string };
+      if (userData.managerId !== me.uid) {
+        return bad("Forbidden - bạn không có quyền gán cho nhân viên này", 403);
       }
     }
 
+    // Check all programs exist & published (và thuộc quyền nếu là manager)
+    const validProgramIds: string[] = [];
+    for (const programId of body.programIds) {
+      const progSnap = await adminDb.collection("programs").doc(programId).get();
+      if (!progSnap.exists) continue;
+      const progData = progSnap.data() as { status?: string; managerId?: string };
+      if (progData.status !== "published") continue;
+      // Manager: chỉ gán được program của họ
+      if (!isAdmin(me) && progData.managerId !== me.uid) continue;
+      validProgramIds.push(programId);
+    }
+
     if (validProgramIds.length === 0) {
-      return bad("Không có chương trình nào hợp lệ (đã published)", 400);
+      return bad("Không có chương trình nào hợp lệ (đã published và thuộc quyền)", 400);
     }
 
     const created: string[] = [];

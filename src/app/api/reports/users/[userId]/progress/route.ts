@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 import type { UserReportSummary } from "@/types/training";
 
 /**
  * GET /api/reports/users/:userId/progress
- *  Chỉ admin. Trả về tất cả chương trình được gán + chi tiết từng lesson.
- *  Employee có thể gọi với userId của chính mình.
+ *  - Admin: xem bất kỳ user
+ *  - Manager: chỉ xem nhân viên thuộc quyền
+ *  - Employee: chỉ xem của chính mình
+ *  Trả về tất cả chương trình được gán + chi tiết từng lesson.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: string }> }) {
   try {
@@ -14,7 +16,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: str
     if (!me) return bad("Unauthorized", 401);
     const { userId } = await ctx.params;
     if (!isAdmin(me) && userId !== me.uid) {
-      return bad("Forbidden", 403);
+      // Manager: kiểm tra nhân viên thuộc quyền
+      if (isManager(me)) {
+        const targetUserSnap = await adminDb.collection("users").doc(userId).get();
+        if (!targetUserSnap.exists) return bad("User not found", 404);
+        const targetUserData = targetUserSnap.data() as { managerId?: string };
+        if (targetUserData.managerId !== me.uid) {
+          return bad("Forbidden - bạn không có quyền xem báo cáo của nhân viên này", 403);
+        }
+      } else {
+        return bad("Forbidden", 403);
+      }
     }
 
     const userSnap = await adminDb.collection("users").doc(userId).get();

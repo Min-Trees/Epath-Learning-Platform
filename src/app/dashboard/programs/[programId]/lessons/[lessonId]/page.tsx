@@ -11,6 +11,8 @@ import {
   XCircle,
   RotateCcw,
   Lock,
+  FileText,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +26,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import { PageContainer } from "@/components/layout";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -36,6 +39,8 @@ import type {
   Lesson,
   PublicTest,
   TestSubmitResult,
+  TestSubmitDetailResult,
+  PublicTestQuestion,
 } from "@/types/training";
 
 // Lazy load heavy video/pdf components
@@ -70,8 +75,9 @@ export default function EmployeeLessonPage({
 
   // Test
   const [test, setTest] = useState<PublicTest | null>(null);
-  const [answers, setAnswers] = useState<number[]>([]);
+  const [answers, setAnswers] = useState<(number | string)[]>([]);
   const [submitResult, setSubmitResult] = useState<TestSubmitResult | null>(null);
+  const [submitDetail, setSubmitDetail] = useState<TestSubmitDetailResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Completion state
@@ -100,7 +106,8 @@ export default function EmployeeLessonPage({
         if (tRes.success && tRes.data) {
           const t = tRes.data as PublicTest;
           setTest(t);
-          setAnswers(new Array(t.questions.length).fill(-1));
+          // Initialize answers array - number for multiple choice, empty string for essay
+          setAnswers(new Array(t.questions.length).fill(""));
         }
       }
       // Check progress
@@ -242,17 +249,29 @@ export default function EmployeeLessonPage({
 
   const handleSubmitTest = async () => {
     if (!test) return;
-    if (answers.some((a) => a < 0)) {
-      setError("Vui lòng chọn đáp án cho tất cả các câu hỏi");
+
+    // Check if all questions are answered
+    const unanswered = test.questions
+      .map((q, i) => ({ index: i, answer: answers[i] }))
+      .filter((a) => {
+        if (typeof a.answer === "string") return !a.answer.trim();
+        return a.answer < 0;
+      });
+
+    if (unanswered.length > 0) {
+      setError(`Vui lòng trả lời tất cả các câu hỏi (câu ${unanswered.map((u) => u.index + 1).join(", ")})`);
       return;
     }
+
     setIsSubmitting(true);
     setError(null);
     try {
-      const res = await testService.submit(programId, lessonId, answers);
+      const res = await testService.submitWithDetails(programId, lessonId, answers);
       if (res.success) {
-        setSubmitResult(res.data as TestSubmitResult);
-        if ((res.data as TestSubmitResult).passed) {
+        const result = res.data as TestSubmitDetailResult;
+        setSubmitResult(result);
+        setSubmitDetail(result);
+        if (result.passed) {
           setIsCompleted(true);
         }
       } else {
@@ -267,7 +286,8 @@ export default function EmployeeLessonPage({
 
   const handleRetake = () => {
     setSubmitResult(null);
-    setAnswers(new Array(test?.questions.length ?? 0).fill(-1));
+    setSubmitDetail(null);
+    setAnswers(new Array(test?.questions.length ?? 0).fill(""));
   };
 
   if (isLoading) {
@@ -450,18 +470,105 @@ export default function EmployeeLessonPage({
                     )}
                     <div>
                       <div className="font-semibold">
-                        {submitResult.passed ? "Đạt" : "Chưa đạt"} · Điểm:{" "}
-                        {submitResult.score}%
+                        {submitResult.passed
+                          ? "Đạt"
+                          : submitDetail?.hasEssayPendingReview
+                            ? "Chờ giáo viên chấm điểm"
+                            : "Chưa đạt"}{" "}
+                        · Điểm: {submitResult.score}%
+                        {submitDetail?.hasEssayPendingReview && (
+                          <Badge variant="outline" className="ml-2 text-xs">
+                            Có câu tự luận cần chấm
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        Lần thử thứ {submitResult.attemptCount} · Điểm đạt:{" "}
-                        {test.passScore}%
+                        Lần thử thứ {submitResult.attemptCount} · Điểm đạt: {test.passScore}%
                       </div>
                     </div>
                   </div>
                 </Alert>
+
+                {/* Detailed Results */}
+                {submitDetail && (
+                  <div className="space-y-4">
+                    <h4 className="font-medium text-sm">Kết quả chi tiết:</h4>
+                    {submitDetail.questionResults.map((result, idx) => (
+                      <div key={idx} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={result.type === "essay" ? "default" : "secondary"}
+                              className="text-xs"
+                            >
+                              {result.type === "essay" ? "Tự luận" : "Trắc nghiệm"}
+                            </Badge>
+                            <span className="font-medium text-sm">Câu {idx + 1}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {result.isPendingReview ? (
+                              <Badge variant="outline" className="text-amber-600 border-amber-300">
+                                <Clock className="h-3 w-3 mr-1" />
+                                Chờ chấm
+                              </Badge>
+                            ) : result.isCorrect ? (
+                              <Badge variant="success" className="text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Đúng
+                              </Badge>
+                            ) : (
+                              <Badge variant="destructive" className="text-xs">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Sai
+                              </Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {result.earnedPoint}/{result.point} điểm
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-sm font-medium">{result.question}</p>
+
+                        {/* Show user's answer and correct answer */}
+                        {result.type === "multiple_choice" ? (
+                          <div className="space-y-1">
+                            <p className="text-sm text-muted-foreground">
+                              Đáp án của bạn:{" "}
+                              <span className={result.isCorrect ? "text-green-600" : "text-red-600"}>
+                                {typeof answers[idx] === "number"
+                                  ? `${String.fromCharCode(65 + answers[idx])}.`
+                                  : "(chưa trả lời)"}
+                              </span>
+                            </p>
+                            {!result.isCorrect && (
+                              <p className="text-sm text-green-600">
+                                Đáp án đúng:{" "}
+                                {String.fromCharCode(65 + (result.correctIndex ?? 0))}.
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="rounded bg-muted/50 p-2">
+                              <p className="text-xs text-muted-foreground mb-1">Câu trả lời của bạn:</p>
+                              <p className="text-sm whitespace-pre-wrap">
+                                {result.userAnswerText || "(chưa trả lời)"}
+                              </p>
+                            </div>
+                            {result.isPendingReview && (
+                              <p className="text-xs text-amber-600">
+                                Câu trả lời này sẽ được giáo viên chấm điểm.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2">
-                  {!submitResult.passed && (
+                  {!submitResult.passed && !submitDetail?.hasEssayPendingReview && (
                     <Button onClick={handleRetake} variant="outline">
                       <RotateCcw className="mr-2 h-4 w-4" />
                       Làm lại
@@ -472,37 +579,60 @@ export default function EmployeeLessonPage({
             ) : (
               <div className="space-y-6">
                 {test.questions.map((q, qIdx) => (
-                  <div key={qIdx} className="space-y-2">
-                    <div className="font-medium">
-                      Câu {qIdx + 1}: {q.question}
+                  <div key={qIdx} className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant={q.type === "essay" ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {q.type === "essay" ? "Tự luận" : "Trắc nghiệm"}
+                      </Badge>
+                      <span className="font-medium">
+                        Câu {qIdx + 1}: {q.question}
+                      </span>
                     </div>
-                    <div className="space-y-1">
-                      {q.options.map((opt, optIdx) => (
-                        <label
-                          key={optIdx}
-                          className="flex cursor-pointer items-center gap-2 rounded-md border p-2 hover:bg-muted/50"
-                        >
-                          <input
-                            type="radio"
-                            name={`q-${qIdx}`}
-                            checked={answers[qIdx] === optIdx}
-                            onChange={() =>
-                              setAnswers((a) => {
-                                const na = [...a];
-                                na[qIdx] = optIdx;
-                                return na;
-                              })
-                            }
-                          />
-                          <span className="text-sm">
-                            {String.fromCharCode(65 + optIdx)}. {opt}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Điểm: {q.point}
-                    </div>
+
+                    {q.type === "essay" ? (
+                      <Textarea
+                        value={typeof answers[qIdx] === "string" ? answers[qIdx] : ""}
+                        onChange={(e) =>
+                          setAnswers((a) => {
+                            const na = [...a];
+                            na[qIdx] = e.target.value;
+                            return na;
+                          })
+                        }
+                        placeholder="Nhập câu trả lời của bạn..."
+                        rows={4}
+                        className="resize-none"
+                      />
+                    ) : (
+                      <div className="space-y-1">
+                        {(q as { options: string[] }).options.map((opt, optIdx) => (
+                          <label
+                            key={optIdx}
+                            className="flex cursor-pointer items-center gap-2 rounded-md border p-2 hover:bg-muted/50"
+                          >
+                            <input
+                              type="radio"
+                              name={`q-${qIdx}`}
+                              checked={answers[qIdx] === optIdx}
+                              onChange={() =>
+                                setAnswers((a) => {
+                                  const na = [...a];
+                                  na[qIdx] = optIdx;
+                                  return na;
+                                })
+                              }
+                            />
+                            <span className="text-sm">
+                              {String.fromCharCode(65 + optIdx)}. {opt}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground">Điểm: {q.point}</div>
                   </div>
                 ))}
                 <div className="flex justify-end">

@@ -12,6 +12,7 @@ import {
   MessageSquare,
   ChevronDown,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,8 @@ export default function AdminTicketsPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const pageSize = 20;
 
@@ -164,6 +167,26 @@ export default function AdminTicketsPage() {
       setUpdateError(err instanceof Error ? err.message : "Đã xảy ra lỗi");
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleDeleteTicket = async () => {
+    if (!selectedTicket) return;
+
+    setIsDeleting(true);
+    try {
+      const res = await ticketService.delete(selectedTicket.id);
+      if (res.success) {
+        setDeleteDialogOpen(false);
+        setDetailDialogOpen(false);
+        void fetchTickets();
+      } else {
+        setUpdateError((res as { error?: string }).error || "Không thể xóa ticket");
+      }
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : "Đã xảy ra lỗi");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -534,22 +557,63 @@ export default function AdminTicketsPage() {
                     </div>
                   </div>
 
-                  <DialogFooter>
+                  <DialogFooter className="flex-col sm:flex-row gap-2">
                     <Button
-                      variant="outline"
-                      onClick={() => setDetailDialogOpen(false)}
+                      variant="destructive"
+                      onClick={() => setDeleteDialogOpen(true)}
                       disabled={isUpdating}
+                      className="w-full sm:w-auto"
                     >
-                      Đóng
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Xóa
                     </Button>
-                    <Button onClick={() => void handleUpdateTicket()} disabled={isUpdating}>
-                      {isUpdating ? "Đang cập nhật..." : "Cập nhật"}
-                    </Button>
+                    <div className="flex gap-2 w-full sm:w-auto">
+                      <Button
+                        variant="outline"
+                        onClick={() => setDetailDialogOpen(false)}
+                        disabled={isUpdating}
+                        className="flex-1 sm:flex-none"
+                      >
+                        Đóng
+                      </Button>
+                      <Button onClick={() => void handleUpdateTicket()} disabled={isUpdating} className="flex-1 sm:flex-none">
+                        {isUpdating ? "Đang cập nhật..." : "Cập nhật"}
+                      </Button>
+                    </div>
                   </DialogFooter>
                 </>
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Xác nhận xóa ticket
+            </DialogTitle>
+            <DialogDescription>
+              Bạn có chắc chắn muốn xóa ticket này? Hành động này không thể hoàn tác.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-muted/50 rounded-lg p-4">
+            <p className="font-medium">{selectedTicket?.title}</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Người gửi: {selectedTicket?.userName || selectedTicket?.userEmail}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isDeleting}>
+              Hủy
+            </Button>
+            <Button variant="destructive" onClick={() => void handleDeleteTicket()} disabled={isDeleting}>
+              {isDeleting ? "Đang xóa..." : "Xóa ticket"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PageContainer>

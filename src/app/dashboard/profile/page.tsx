@@ -67,6 +67,7 @@ export default function ProfilePage() {
 
   const roleLabels: Record<string, string> = {
     admin: "Quản trị viên",
+    manager: "Quản lý",
     hr: "Nhân sự",
     trainer: "Giảng viên",
     employee: "Nhân viên",

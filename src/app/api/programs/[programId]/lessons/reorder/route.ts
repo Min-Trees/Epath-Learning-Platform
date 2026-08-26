@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 
 /**
  * PUT /api/programs/:programId/lessons/reorder
  *  Body: { lessons: { id, order }[] }
  *  Batch update lesson order values for a specific program.
+ *  Admin: mọi program. Manager: chỉ program của họ.
  */
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden - chỉ admin và manager", 403);
     const { programId } = await ctx.params;
+
+    // Kiểm tra quyền với manager
+    if (!isAdmin(me)) {
+      const progSnap = await adminDb.collection("programs").doc(programId).get();
+      if (!progSnap.exists) return bad("Program not found", 404);
+      const progData = progSnap.data() as { managerId?: string };
+      if (progData.managerId !== me.uid) {
+        return bad("Forbidden - bạn không có quyền reorder lessons của chương trình này", 403);
+      }
+    }
 
     const body = (await req.json().catch(() => null)) as {
       lessons: { id: string; order: number }[];

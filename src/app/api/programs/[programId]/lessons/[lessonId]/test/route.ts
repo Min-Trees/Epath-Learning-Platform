@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
-import type { TestQuestion } from "@/types/training";
+import type { TestQuestion, PublicTestQuestion } from "@/types/training";
 
 /**
  * GET /api/programs/:programId/lessons/:lessonId/test
- *  - Admin: trả full questions (kèm correctIndex)
- *  - Employee đã gán: trả questions ẩn correctIndex
+ *  - Admin: trả full questions (kèm correctIndex, sampleAnswer)
+ *  - Employee đã gán: trả questions ẩn correctIndex và sampleAnswer
  *  - Ngược lại: 403
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: string; lessonId: string }> }) {
@@ -44,19 +44,44 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
       questions: TestQuestion[];
       passScore: number;
     };
-    if (isAdmin(me)) {
+
+    // Admin và Manager (sở hữu program) được xem full câu hỏi
+    let isFullAccess = isAdmin(me);
+    if (!isFullAccess && me.role === "manager") {
+      const progSnap = await adminDb.collection("programs").doc(programId).get();
+      if (progSnap.exists) {
+        const progData = progSnap.data() as { managerId?: string };
+        if (progData.managerId === me.uid) {
+          isFullAccess = true;
+        }
+      }
+    }
+
+    if (isFullAccess) {
       return ok({
         id: tDoc.id,
         questions: data.questions,
         passScore: data.passScore,
       });
     }
-    // Ẩn correctIndex
-    const safeQuestions = data.questions.map((q) => ({
-      question: q.question,
-      options: q.options,
-      point: q.point,
-    }));
+
+    // Ẩn correctIndex và sampleAnswer cho employee
+    const safeQuestions: PublicTestQuestion[] = data.questions.map((q) => {
+      if (q.type === "essay") {
+        return {
+          type: "essay" as const,
+          question: q.question,
+          point: q.point,
+        };
+      }
+      return {
+        type: "multiple_choice" as const,
+        question: q.question,
+        options: q.options,
+        point: q.point,
+      };
+    });
+
     return ok({
       id: tDoc.id,
       questions: safeQuestions,
@@ -77,8 +102,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
     const { programId, lessonId } = await ctx.params;
+
+    // Kiểm tra quyền: admin hoặc manager sở hữu program
+    const progRef = adminDb.collection("programs").doc(programId);
+    const progSnap = await progRef.get();
+    if (!progSnap.exists) return bad("Program not found", 404);
+    const progData = progSnap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền chỉnh sửa test của chương trình này", 403);
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
       questions?: TestQuestion[];
@@ -87,24 +121,41 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
     if (!Array.isArray(body.questions) || body.questions.length === 0) {
       return bad("Cần ít nhất 1 câu hỏi");
     }
+
     for (const [i, q] of body.questions.entries()) {
       if (!q.question || typeof q.question !== "string") {
         return bad(`Câu hỏi #${i + 1}: thiếu nội dung`);
       }
-      if (!Array.isArray(q.options) || q.options.length < 2) {
-        return bad(`Câu hỏi #${i + 1}: cần ≥ 2 đáp án`);
-      }
-      if (
-        typeof q.correctIndex !== "number" ||
-        q.correctIndex < 0 ||
-        q.correctIndex >= q.options.length
-      ) {
-        return bad(`Câu hỏi #${i + 1}: correctIndex không hợp lệ`);
-      }
-      if (typeof q.point !== "number" || q.point <= 0) {
-        return bad(`Câu hỏi #${i + 1}: point phải > 0`);
+
+      if (q.type === "essay") {
+        // Essay question validation
+        if (typeof q.point !== "number" || q.point <= 0) {
+          return bad(`Câu hỏi #${i + 1}: điểm phải > 0`);
+        }
+        // sampleAnswer is optional - can be empty for manual grading
+        if (typeof q.sampleAnswer !== "string") {
+          return bad(`Câu hỏi #${i + 1}: thiếu đáp án mẫu (để trống nếu cần chấm thủ công)`);
+        }
+      } else if (q.type === "multiple_choice") {
+        // Multiple choice validation
+        if (!Array.isArray(q.options) || q.options.length < 2) {
+          return bad(`Câu hỏi #${i + 1}: cần ≥ 2 đáp án`);
+        }
+        if (
+          typeof q.correctIndex !== "number" ||
+          q.correctIndex < 0 ||
+          q.correctIndex >= q.options.length
+        ) {
+          return bad(`Câu hỏi #${i + 1}: correctIndex không hợp lệ`);
+        }
+        if (typeof q.point !== "number" || q.point <= 0) {
+          return bad(`Câu hỏi #${i + 1}: điểm phải > 0`);
+        }
+      } else {
+        return bad(`Câu hỏi #${i + 1}: loại câu hỏi không hợp lệ`);
       }
     }
+
     const passScore = Number(body.passScore ?? 70);
     if (passScore < 0 || passScore > 100) {
       return bad("passScore phải trong [0,100]");
@@ -148,15 +199,24 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programI
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
     const { programId, lessonId } = await ctx.params;
+
+    // Kiểm tra quyền: admin hoặc manager sở hữu program
+    const progRef = adminDb.collection("programs").doc(programId);
+    const progSnap = await progRef.get();
+    if (!progSnap.exists) return bad("Program not found", 404);
+    const progData = progSnap.data() as { managerId?: string };
+    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    if (!isAdmin(me) && !isProgramOwner) {
+      return bad("Forbidden - bạn không có quyền xóa test của chương trình này", 403);
+    }
 
     const lessonRef = adminDb
       .collection("programs")
       .doc(programId)
       .collection("lessons")
       .doc(lessonId);
-    
+
     const testsSnap = await lessonRef.collection("test").get();
     if (!testsSnap.empty) {
       // Delete all tests in this lesson

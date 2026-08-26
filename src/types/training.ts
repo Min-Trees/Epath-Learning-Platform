@@ -58,12 +58,43 @@ export interface Lesson {
 // ─── Test (Bài kiểm tra) ─────────────────────────────────────
 // Lưu trong subcollection: programs/{programId}/lessons/{lessonId}/test/{testId}
 // Theo spec: mỗi lesson chỉ có một test, nên testId có thể là "default" hoặc 1 id bất kỳ.
-export interface TestQuestion {
+
+export type QuestionType = "multiple_choice" | "essay";
+
+// Câu hỏi trắc nghiệm
+export interface MultipleChoiceQuestion {
+  type: "multiple_choice";
   question: string;
   options: string[];
   correctIndex: number;
   point: number;
 }
+
+// Câu hỏi tự luận
+export interface EssayQuestion {
+  type: "essay";
+  question: string;
+  sampleAnswer: string;
+  point: number;
+}
+
+export type TestQuestion = MultipleChoiceQuestion | EssayQuestion;
+
+// Phiên bản public trả về cho client (ẩn correctIndex và sampleAnswer)
+export interface PublicMultipleChoiceQuestion {
+  type: "multiple_choice";
+  question: string;
+  options: string[];
+  point: number;
+}
+
+export interface PublicEssayQuestion {
+  type: "essay";
+  question: string;
+  point: number;
+}
+
+export type PublicTestQuestion = PublicMultipleChoiceQuestion | PublicEssayQuestion;
 
 export interface LessonTest {
   id: string;
@@ -75,13 +106,7 @@ export interface LessonTest {
   updatedAt?: Date;
 }
 
-// Phiên bản public trả về cho client (ẩn correctIndex)
-export interface PublicTestQuestion {
-  question: string;
-  options: string[];
-  point: number;
-}
-
+// Phiên bản public trả về cho client (ẩn correctIndex và sampleAnswer)
 export interface PublicTest {
   id: string;
   programId: string;
@@ -96,6 +121,28 @@ export interface TestSubmitResult {
   earnedPoint: number;
   passed: boolean;
   attemptCount: number;
+  hasEssayPendingReview: boolean; // true nếu có câu tự luận cần admin check
+}
+
+// Kết quả chấm điểm từng câu hỏi (trả về cho admin/user sau khi submit)
+export interface QuestionGradingResult {
+  questionIndex: number;
+  question: string;
+  type: QuestionType;
+  point: number;
+  earnedPoint: number;
+  isCorrect: boolean;
+  // Cho multiple choice
+  userAnswerIndex?: number;
+  correctIndex?: number;
+  // Cho essay
+  userAnswerText?: string;
+  sampleAnswer?: string; // chỉ trả về cho admin
+  isPendingReview?: boolean; // true nếu cần admin check
+}
+
+export interface TestSubmitDetailResult extends TestSubmitResult {
+  questionResults: QuestionGradingResult[];
 }
 
 // ─── Assignment (Gán chương trình cho Employee) ──────────────

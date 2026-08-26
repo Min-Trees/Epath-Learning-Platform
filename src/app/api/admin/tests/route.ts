@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
 
 interface TestRow {
   id: string;
@@ -18,14 +18,27 @@ interface TestRow {
 /**
  * GET /api/admin/tests
  *  - Admin: trả về danh sách tất cả tests từ các chương trình
+ *  - Manager: chỉ trả về tests từ các chương trình của họ
  */
 export async function GET(req: NextRequest) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden", 403);
+    if (!isManagerOrAdmin(me)) return bad("Forbidden", 403);
 
-    const programsSnap = await adminDb.collection("programs").get();
+    let programsSnap;
+    if (isAdmin(me)) {
+      programsSnap = await adminDb.collection("programs").get();
+    } else if (isManager(me)) {
+      // Manager chỉ thấy programs được gán cho họ
+      programsSnap = await adminDb
+        .collection("programs")
+        .where("managerId", "==", me.uid)
+        .get();
+    } else {
+      return bad("Forbidden", 403);
+    }
+
     const rows: TestRow[] = [];
 
     for (const programDoc of programsSnap.docs) {
