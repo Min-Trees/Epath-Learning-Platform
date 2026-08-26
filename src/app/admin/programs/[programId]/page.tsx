@@ -1479,7 +1479,7 @@ function TestEditorDialog({
     setError(null);
     try {
       const res = await import("@/services/training").then((m) =>
-        m.testService.upsert(programId, lesson.id, { questions, passScore })
+        m.testService.upsert(programId, lesson.id, { questions: questions as never, passScore })
       );
       if (res.success) {
         await onSaved();
