@@ -45,6 +45,8 @@ import {
   GripVertical,
   X,
   Check,
+  ListChecks,
+  Circle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1353,8 +1355,12 @@ function TestEditorDialog({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
-  const [questions, setQuestions] = useState([
-    { question: "", options: ["", "", "", ""], correctIndex: 0, point: 10 },
+  type DraftQuestion =
+    | { type: "multiple_choice"; question: string; options: string[]; correctIndex: number; point: number }
+    | { type: "essay"; question: string; sampleAnswer: string; point: number };
+
+  const [questions, setQuestions] = useState<DraftQuestion[]>([
+    { type: "multiple_choice", question: "", options: ["", "", "", ""], correctIndex: 0, point: 10 },
   ]);
   const [passScore, setPassScore] = useState(70);
   const [isSaving, setIsSaving] = useState(false);
@@ -1369,11 +1375,34 @@ function TestEditorDialog({
         );
         if (res.success && res.data) {
           const data = res.data as {
-            questions: { question: string; options: string[]; correctIndex: number; point: number }[];
+            questions: Array<
+              | { type?: "multiple_choice"; question: string; options: string[]; correctIndex: number; point: number; sampleAnswer?: string }
+              | { type: "essay"; question: string; sampleAnswer?: string; point: number }
+            >;
             passScore: number;
           };
           if (Array.isArray(data.questions) && data.questions.length > 0) {
-            setQuestions(data.questions);
+            setQuestions(
+              data.questions.map((q) => {
+                if ((q as { type?: string }).type === "essay") {
+                  const essayQ = q as { type: "essay"; question: string; sampleAnswer?: string; point: number };
+                  return {
+                    type: "essay" as const,
+                    question: essayQ.question,
+                    sampleAnswer: essayQ.sampleAnswer || "",
+                    point: essayQ.point,
+                  };
+                }
+                const mcq = q as { type?: "multiple_choice"; question: string; options: string[]; correctIndex: number; point: number };
+                return {
+                  type: "multiple_choice" as const,
+                  question: mcq.question,
+                  options: [...mcq.options],
+                  correctIndex: mcq.correctIndex,
+                  point: mcq.point,
+                };
+              })
+            );
           }
           setPassScore(data.passScore ?? 70);
         }
@@ -1386,24 +1415,44 @@ function TestEditorDialog({
     load();
   }, [programId, lesson.id]);
 
-  const updateQuestion = (idx: number, field: keyof typeof questions[number], value: string | number) => {
+  const updateQuestion = (idx: number, field: "question" | "point" | "correctIndex" | "sampleAnswer", value: string | number) => {
     setQuestions((qs) =>
-      qs.map((q, i) => (i === idx ? { ...q, [field]: value } : q))
+      qs.map((q, i) => (i === idx ? ({ ...q, [field]: value } as DraftQuestion) : q))
     );
   };
 
   const updateOption = (qIdx: number, optIdx: number, value: string) => {
     setQuestions((qs) =>
-      qs.map((q, i) =>
-        i === qIdx ? { ...q, options: q.options.map((o, j) => (j === optIdx ? value : o)) } : q
-      )
+      qs.map((q, i) => {
+        if (i !== qIdx || q.type !== "multiple_choice") return q;
+        return {
+          ...q,
+          options: q.options.map((o, j) => (j === optIdx ? value : o)),
+        };
+      })
     );
   };
 
-  const addQuestion = () => {
+  const updateSampleAnswer = (qIdx: number, value: string) => {
+    setQuestions((qs) =>
+      qs.map((q, i) => {
+        if (i !== qIdx || q.type !== "essay") return q;
+        return { ...q, sampleAnswer: value };
+      })
+    );
+  };
+
+  const addMultipleChoice = () => {
     setQuestions((qs) => [
       ...qs,
-      { question: "", options: ["", "", "", ""], correctIndex: 0, point: 10 },
+      { type: "multiple_choice", question: "", options: ["", "", "", ""], correctIndex: 0, point: 10 },
+    ]);
+  };
+
+  const addEssay = () => {
+    setQuestions((qs) => [
+      ...qs,
+      { type: "essay", question: "", sampleAnswer: "", point: 10 },
     ]);
   };
 
@@ -1421,7 +1470,7 @@ function TestEditorDialog({
         setError(`Câu hỏi #${i + 1}: thiếu nội dung`);
         return;
       }
-      if (q.options.some((o) => !o.trim())) {
+      if (q.type === "multiple_choice" && q.options.some((o) => !o.trim())) {
         setError(`Câu hỏi #${i + 1}: đáp án không được trống`);
         return;
       }
@@ -1463,12 +1512,48 @@ function TestEditorDialog({
               </Alert>
             )}
 
-            {questions.map((q, qIdx) => (
-              <div key={qIdx} className="rounded-lg border p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Câu hỏi #{qIdx + 1}</span>
+{questions.map((q, qIdx) => (
+              <div
+                key={qIdx}
+                className={`rounded-lg border bg-card p-4 space-y-3 border-l-4 ${
+                  q.type === "essay"
+                    ? "border-l-blue-500"
+                    : "border-l-purple-500"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="shrink-0 font-mono">
+                      #{qIdx + 1}
+                    </Badge>
+                    <Badge
+                      variant={q.type === "essay" ? "info" : "purple"}
+                      className="text-xs"
+                    >
+                      {q.type === "essay" ? (
+                        <>
+                          <FileText className="h-3 w-3 mr-1" />
+                          Tự luận
+                        </>
+                      ) : (
+                        <>
+                          <ListChecks className="h-3 w-3 mr-1" />
+                          Trắc nghiệm
+                        </>
+                      )}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      • {q.point} điểm
+                    </span>
+                  </div>
                   {questions.length > 1 && (
-                    <Button variant="ghost" size="sm" onClick={() => removeQuestion(qIdx)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => removeQuestion(qIdx)}
+                      title="Xóa câu hỏi"
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
@@ -1476,55 +1561,145 @@ function TestEditorDialog({
                 <Textarea
                   value={q.question}
                   onChange={(e) => updateQuestion(qIdx, "question", e.target.value)}
-                  placeholder="Nhập nội dung câu hỏi..."
+                  placeholder={q.type === "essay" ? "Nhập câu hỏi tự luận..." : "Nhập nội dung câu hỏi..."}
                   rows={2}
+                  className="resize-none"
                 />
-                <div className="space-y-2">
-                  {q.options.map((opt, optIdx) => (
-                    <div key={optIdx} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        checked={q.correctIndex === optIdx}
-                        onChange={() => updateQuestion(qIdx, "correctIndex", optIdx)}
-                        className="shrink-0"
-                      />
-                      <Input
-                        value={opt}
-                        onChange={(e) => updateOption(qIdx, optIdx, e.target.value)}
-                        placeholder={`Đáp án ${String.fromCharCode(65 + optIdx)}`}
-                      />
+                {q.type === "multiple_choice" && (
+                  <div className="space-y-2 pl-2 border-l-2 border-purple-200 ml-1">
+                    <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <ListChecks className="h-3 w-3" />
+                      Chọn đáp án đúng bằng cách click vào icon
+                    </p>
+                    {q.options.map((opt, optIdx) => (
+                      <div key={optIdx} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateQuestion(qIdx, "correctIndex", optIdx)}
+                          className="shrink-0 transition-all hover:scale-110"
+                          title={optIdx === q.correctIndex ? "Đáp án đúng" : "Đặt làm đáp án đúng"}
+                        >
+                          {optIdx === q.correctIndex ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-600 fill-green-100" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-muted-foreground hover:text-foreground" />
+                          )}
+                        </button>
+                        <Input
+                          value={opt}
+                          onChange={(e) => updateOption(qIdx, optIdx, e.target.value)}
+                          placeholder={`Đáp án ${String.fromCharCode(65 + optIdx)}`}
+                          className={`flex-1 h-9 transition-colors ${
+                            optIdx === q.correctIndex ? "border-green-500 bg-green-50/50" : ""
+                          }`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {q.type === "essay" && (
+                  <div className="space-y-2 pl-2 border-l-2 border-blue-200 ml-1">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 text-blue-600" />
+                      <Label className="text-xs font-medium text-muted-foreground">
+                        Đáp án mẫu (tham khảo cho admin chấm):
+                      </Label>
                     </div>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
+                    <Textarea
+                      value={q.sampleAnswer}
+                      onChange={(e) => updateSampleAnswer(qIdx, e.target.value)}
+                      placeholder="Nhập đáp án mẫu hoặc hướng dẫn chấm điểm..."
+                      rows={3}
+                      className="resize-none bg-blue-50/30 border-blue-200"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 pt-2 border-t">
                   <Label className="text-sm">Điểm:</Label>
                   <Input
                     type="number"
                     min={1}
                     value={q.point}
                     onChange={(e) => updateQuestion(qIdx, "point", parseInt(e.target.value || "1", 10))}
-                    className="w-20"
+                    className="w-20 h-8"
                   />
                 </div>
               </div>
             ))}
 
-            <Button variant="outline" onClick={addQuestion}>
-              <Plus className="mr-2 h-4 w-4" />
-              Thêm câu hỏi
-            </Button>
+            {/* Add Question Buttons */}
+            <div className="rounded-xl border-2 border-dashed border-primary/40 bg-gradient-to-br from-primary/5 via-primary/5 to-transparent p-5 space-y-3">
+              <div className="flex items-center justify-center gap-2">
+                <div className="h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Plus className="h-4 w-4 text-primary" />
+                </div>
+                <div className="text-base font-semibold text-primary">
+                  Thêm câu hỏi mới
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={addMultipleChoice}
+                  className="w-full h-auto py-3 border-2 border-purple-200 hover:border-purple-500 hover:bg-purple-50 group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg bg-purple-100 group-hover:bg-purple-500 flex items-center justify-center transition-colors">
+                      <ListChecks className="h-5 w-5 text-purple-600 group-hover:text-white transition-colors" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-semibold text-purple-700 group-hover:text-purple-800">Trắc nghiệm</div>
+                      <div className="text-xs text-muted-foreground font-normal">Chấm tự động</div>
+                    </div>
+                  </div>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={addEssay}
+                  className="w-full h-auto py-3 border-2 border-blue-200 hover:border-blue-500 hover:bg-blue-50 group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg bg-blue-100 group-hover:bg-blue-500 flex items-center justify-center transition-colors">
+                      <FileText className="h-5 w-5 text-blue-600 group-hover:text-white transition-colors" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-semibold text-blue-700 group-hover:text-blue-800">Tự luận</div>
+                      <div className="text-xs text-muted-foreground font-normal">Admin chấm thủ công</div>
+                    </div>
+                  </div>
+                </Button>
+              </div>
+            </div>
 
-            <div className="flex items-center gap-4 pt-4 border-t">
-              <div className="flex items-center gap-2">
-                <Label>Điểm đạt (%):</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={passScore}
-                  onChange={(e) => setPassScore(parseInt(e.target.value || "0", 10))}
-                  className="w-20"
-                />
+            {/* Pass Score Setting */}
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="space-y-1">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <Award className="h-4 w-4 text-primary" />
+                    Cài đặt bài kiểm tra
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Tổng số câu hỏi: <span className="font-semibold text-foreground">{questions.length}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">Điểm đạt (%):</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={passScore}
+                    onChange={(e) =>
+                      setPassScore(Math.min(100, Math.max(0, parseInt(e.target.value || "0", 10))))
+                    }
+                    className="w-20 h-9"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1533,9 +1708,17 @@ function TestEditorDialog({
                 Hủy
               </Button>
               <Button onClick={handleSave} disabled={isSaving}>
-                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Save className="mr-2 h-4 w-4" />
-                Lưu bài test
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Đang lưu...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Lưu bài test
+                  </>
+                )}
               </Button>
             </div>
           </div>

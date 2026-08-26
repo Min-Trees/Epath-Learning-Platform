@@ -43,19 +43,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
 }
 
 /**
- * PUT /api/programs/:programId - chỉ admin
+ * PUT /api/programs/:programId - admin hoặc manager được gán
  *  Body: { title?, description?, status?, groupId? }
  */
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
     const { programId } = await ctx.params;
 
     const ref = adminDb.collection("programs").doc(programId);
     const snap = await ref.get();
     if (!snap.exists) return bad("Program not found", 404);
+    const programData = snap.data() as Record<string, unknown>;
+
+    // Kiểm tra quyền: admin thì được sửa tất cả,
+    // manager phải nằm trong assignedManagers
+    const assignedManagers = (programData.assignedManagers as string[] | undefined) ?? [];
+    const isAssignedManager = me.role === "manager" && assignedManagers.includes(me.uid);
+    if (!isAdmin(me) && !isAssignedManager) {
+      return bad("Forbidden - bạn không có quyền sửa chương trình này", 403);
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
       title?: string;
@@ -79,19 +87,28 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
 }
 
 /**
- * DELETE /api/programs/:programId - chỉ admin
+ * DELETE /api/programs/:programId
+ *  - Admin: xóa mọi program
+ *  - Manager: chỉ xóa program được gán
  *  Xóa program, lessons, tests, assignments, progress.
  */
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programId: string }> }) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isAdmin(me)) return bad("Forbidden - chỉ admin", 403);
     const { programId } = await ctx.params;
 
     const ref = adminDb.collection("programs").doc(programId);
     const snap = await ref.get();
     if (!snap.exists) return bad("Program not found", 404);
+
+    // Manager: chỉ xóa program được gán
+    const progData = snap.data() as { assignedManagers?: string[] };
+    const assignedManagers = progData.assignedManagers ?? [];
+    const isAssignedManager = me.role === "manager" && assignedManagers.includes(me.uid);
+    if (!isAdmin(me) && !isAssignedManager) {
+      return bad("Forbidden - bạn không có quyền xóa chương trình này", 403);
+    }
 
     // Xóa lessons + tests của lessons
     const lessonsSnap = await ref.collection("lessons").get();

@@ -27,6 +27,7 @@ import {
   List,
   UserX,
   UserPlus,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { assignmentService, programService } from "@/services/training";
+import { apiPut } from "@/lib/api-client";
 import { getInitials } from "@/utils";
 import type { Program, Assignment } from "@/types/training";
 import type { User } from "@/types";
@@ -274,6 +276,14 @@ function AdminAssignmentsPageInner() {
   // Dialog search
   const [dialogSearchQuery, setDialogSearchQuery] = useState("");
 
+  // Manager assignment dialog state
+  const [openManagerDialog, setOpenManagerDialog] = useState(false);
+  const [selectedProgramForManager, setSelectedProgramForManager] = useState<Program | null>(null);
+  const [selectedManagerIds, setSelectedManagerIds] = useState<Set<string>>(new Set());
+  const [managerSearchQuery, setManagerSearchQuery] = useState("");
+  const [isAssigningManagers, setIsAssigningManagers] = useState(false);
+  const [allManagers, setAllManagers] = useState<User[]>([]);
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
@@ -302,6 +312,7 @@ function AdminAssignmentsPageInner() {
         };
       });
       setAllUsers(userList.filter((u) => u.isActive));
+      setAllManagers(userList.filter((u) => u.role === "manager" && u.isActive));
       if (assignsRes.success) {
         setAssignments((assignsRes.data as { items: Assignment[] }).items);
       }
@@ -591,16 +602,71 @@ function AdminAssignmentsPageInner() {
     }
   };
 
-  // Filter dialog users
+  // Manager assignment
+  const openManagerDialogHandler = (program: Program) => {
+    setSelectedProgramForManager(program);
+    setSelectedManagerIds(
+      new Set((program as unknown as { assignedManagers?: string[] }).assignedManagers ?? [])
+    );
+    setManagerSearchQuery("");
+    setOpenManagerDialog(true);
+  };
+
+  const handleAssignManagers = async () => {
+    if (!selectedProgramForManager) return;
+    if (user?.role !== "admin") {
+      setError("Chỉ admin mới có quyền gán quản lý");
+      return;
+    }
+    setIsAssigningManagers(true);
+    setError(null);
+    try {
+      const res = await apiPut(
+        `/api/programs/${selectedProgramForManager.id}/managers`,
+        { managerIds: Array.from(selectedManagerIds) }
+      );
+      if (res.success) {
+        setSuccess(`Đã gán ${selectedManagerIds.size} quản lý cho chương trình`);
+        setOpenManagerDialog(false);
+        await fetchData();
+      } else {
+        setError(res.error ?? "Lỗi gán quản lý");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsAssigningManagers(false);
+    }
+  };
+
+  const filteredManagers = useMemo(() => {
+    if (!managerSearchQuery) return allManagers;
+    const q = managerSearchQuery.toLowerCase();
+    return allManagers.filter(
+      (m) =>
+        (m.displayName ?? "").toLowerCase().includes(q) ||
+        (m.email ?? "").toLowerCase().includes(q)
+    );
+  }, [allManagers, managerSearchQuery]);
+
+  // Filter dialog users - always use full user list for dialog to avoid being affected by main page filters
   const dialogFilteredUsers = useMemo(() => {
-    if (!dialogSearchQuery) return filteredUsers;
+    // Use all filtered users from main page for "program" mode (select employees for a program)
+    let usersToFilter = filteredUsers;
+    
+    // For "employee" mode (assign multiple programs to one employee), show all employees regardless of main page filters
+    if (assignMode === "employee") {
+      usersToFilter = users; // Use unfiltered users (only role filter)
+    }
+    
+    if (!dialogSearchQuery) return usersToFilter;
     const q = dialogSearchQuery.toLowerCase();
-    return filteredUsers.filter(
+    return usersToFilter.filter(
       (u) =>
         (u.displayName ?? "").toLowerCase().includes(q) ||
         (u.email ?? "").toLowerCase().includes(q)
     );
-  }, [filteredUsers, dialogSearchQuery]);
+  }, [filteredUsers, users, dialogSearchQuery, assignMode]);
 
   if (!isAdmin) {
     return (
@@ -950,6 +1016,12 @@ function AdminAssignmentsPageInner() {
                               <Badge variant="outline" className="text-xs shrink-0">
                                 {filteredAssigns.length} NV
                               </Badge>
+                              {((program as unknown as { assignedManagers?: string[] }).assignedManagers?.length ?? 0) > 0 && (
+                                <Badge variant="secondary" className="text-xs shrink-0">
+                                  <UserCog className="mr-1 h-3 w-3" />
+                                  {(program as unknown as { assignedManagers?: string[] }).assignedManagers?.length} QLý
+                                </Badge>
+                              )}
                             </CardTitle>
                             {program.description && (
                               <CardDescription className="text-xs mt-0.5 line-clamp-1 hidden sm:block">
@@ -989,6 +1061,21 @@ function AdminAssignmentsPageInner() {
                             <span className="hidden sm:inline">Gán thêm</span>
                             <span className="sm:hidden">Gán</span>
                           </Button>
+                          {user?.role === "admin" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs sm:text-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openManagerDialogHandler(program);
+                              }}
+                            >
+                              <UserCog className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                              <span className="hidden sm:inline">Gán QLý</span>
+                              <span className="sm:hidden">QL</span>
+                            </Button>
+                          )}
                           {isExpanded ? (
                             <ChevronDown className="h-5 w-5 text-muted-foreground" />
                           ) : (
@@ -1596,15 +1683,23 @@ function AdminAssignmentsPageInner() {
                       const assignedCount = userAssigns.size;
 
                       return (
-                        <label
+                        <div
                           key={u.id}
                           className={`
                             flex cursor-pointer items-center gap-2 rounded-md p-2 transition-colors
                             ${selectedUserIds.has(u.id)
                               ? "border-primary bg-primary/5"
-                              : "hover:bg-muted/50"
+                              : "hover:bg-muted/50 border border-transparent"
                             }
                           `}
+                          onClick={() => {
+                            setSelectedUserIds((s) => {
+                              const ns = new Set(s);
+                              if (ns.has(u.id)) ns.delete(u.id);
+                              else ns.add(u.id);
+                              return ns;
+                            });
+                          }}
                         >
                           <div
                             className={`
@@ -1617,28 +1712,28 @@ function AdminAssignmentsPageInner() {
                           >
                             {selectedUserIds.has(u.id) && (
                               <CheckCircle2 className="h-3 w-3 text-primary-foreground" />
-                            )}
-                          </div>
-                          <Avatar className="h-7 w-7 shrink-0">
-                            <AvatarImage src={u.photoURL} />
-                            <AvatarFallback className="text-xs">
-                              {getInitials(u.displayName ?? "U")}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {u.displayName}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {u.email}
-                            </p>
-                          </div>
-                          {assignedCount > 0 && (
-                            <Badge variant="secondary" className="text-xs shrink-0">
-                              {assignedCount} CT
-                            </Badge>
                           )}
-                        </label>
+                        </div>
+                        <Avatar className="h-7 w-7 shrink-0">
+                          <AvatarImage src={u.photoURL} />
+                          <AvatarFallback className="text-xs">
+                            {getInitials(u.displayName ?? "U")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {u.displayName}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {u.email}
+                          </p>
+                        </div>
+                        {assignedCount > 0 && (
+                          <Badge variant="secondary" className="text-xs shrink-0">
+                            {assignedCount} CT
+                          </Badge>
+                        )}
+                        </div>
                       );
                     })}
                     {dialogFilteredUsers.length === 0 && (
@@ -1810,6 +1905,119 @@ function AdminAssignmentsPageInner() {
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                   Gán {selectedProgramIds.size} chương trình
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Gán quản lý */}
+      <Dialog
+        open={openManagerDialog}
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenManagerDialog(false);
+            setManagerSearchQuery("");
+            setSelectedManagerIds(new Set());
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="h-5 w-5" />
+              Gán quản lý cho chương trình
+            </DialogTitle>
+            <DialogDescription>
+              Chọn các quản lý được phép quản lý chương trình{" "}
+              <strong>&ldquo;{selectedProgramForManager?.title}&rdquo;</strong>.
+              Quản lý được chọn có thể chỉnh sửa, gán nhân viên và xem báo cáo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Tìm quản lý..."
+                className="pl-9"
+                value={managerSearchQuery}
+                onChange={(e) => setManagerSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2">
+              {filteredManagers.map((manager) => (
+                <label
+                  key={manager.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted/50"
+                >
+                  <Checkbox
+                    checked={selectedManagerIds.has(manager.id)}
+                    onCheckedChange={(checked) => {
+                      setSelectedManagerIds((prev) => {
+                        const next = new Set(prev);
+                        if (checked) next.add(manager.id);
+                        else next.delete(manager.id);
+                        return next;
+                      });
+                    }}
+                  />
+                  <Avatar className="h-7 w-7 shrink-0">
+                    <AvatarImage src={manager.photoURL} />
+                    <AvatarFallback className="text-xs">
+                      {getInitials(manager.displayName ?? "M")}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {manager.displayName}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {manager.email}
+                    </p>
+                  </div>
+                </label>
+              ))}
+              {filteredManagers.length === 0 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  {managerSearchQuery
+                    ? "Không tìm thấy quản lý"
+                    : "Chưa có quản lý nào trong hệ thống"}
+                </p>
+              )}
+            </div>
+
+            {selectedManagerIds.size > 0 && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <UserCheck className="h-4 w-4" />
+                Đã chọn {selectedManagerIds.size} quản lý
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOpenManagerDialog(false)}
+              disabled={isAssigningManagers}
+            >
+              Hủy
+            </Button>
+            <Button
+              onClick={handleAssignManagers}
+              disabled={isAssigningManagers}
+            >
+              {isAssigningManagers ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Đang lưu...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Lưu ({selectedManagerIds.size} quản lý)
                 </>
               )}
             </Button>

@@ -43,6 +43,7 @@ import {
   Layers,
   Check,
   FolderTree,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,11 +63,25 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PageContainer } from "@/components/layout";
 import { useAuth } from "@/hooks";
 import { programService, groupService, reorderService } from "@/services/training";
+import { apiPut } from "@/lib/api-client";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import type { Program, ProgramGroup } from "@/types/training";
-import { formatDateTime } from "@/utils";
+import type { User } from "@/types";
+import { formatDateTime, getInitials } from "@/utils";
 
 // ─── Sortable Program Card ────────────────────────────────────
 function SortableProgramCard({
@@ -75,12 +90,14 @@ function SortableProgramCard({
   groups,
   onUpdateGroup,
   isAdmin,
+  onOpenManagerDialog,
 }: {
   program: Program;
   isEditMode: boolean;
   groups: ProgramGroup[];
   onUpdateGroup: (programId: string, groupId: string | null) => void;
   isAdmin: boolean;
+  onOpenManagerDialog?: (program: Program) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: program.id, disabled: !isEditMode });
@@ -198,6 +215,18 @@ function SortableProgramCard({
                                 Gán cho nhân viên
                               </Link>
                             </DropdownMenuItem>
+                            {isAdmin && (
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  if (typeof onOpenManagerDialog === "function") {
+                                    onOpenManagerDialog(program);
+                                  }
+                                }}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Gán quản lý
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem asChild>
                               <Link href={`/admin/reports?programId=${program.id}`}>
                                 <BarChart3 className="mr-2 h-4 w-4" />
@@ -279,6 +308,7 @@ function SortableGroupSection({
   deletingId,
   isAdmin,
   onUpdateGroupName,
+  onOpenManagerDialog,
 }: {
   group: ProgramGroup;
   programs: Program[];
@@ -290,6 +320,7 @@ function SortableGroupSection({
   deletingId: string | null;
   isAdmin: boolean;
   onUpdateGroupName: (groupId: string, name: string) => void;
+  onOpenManagerDialog?: (program: Program) => void;
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -396,6 +427,7 @@ function SortableGroupSection({
               groups={allGroups}
               onUpdateGroup={onUpdateGroup}
               isAdmin={isAdmin}
+              onOpenManagerDialog={onOpenManagerDialog}
             />
           ))}
           {programs.length === 0 && !isEditMode && (
@@ -611,6 +643,25 @@ export default function AdminProgramsPage() {
   const [newGroupName, setNewGroupName] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"programs" | "groups">("programs");
+
+  // Manager assignment dialog
+  const [openManagerDialog, setOpenManagerDialog] = useState(false);
+  const [selectedProgramForManager, setSelectedProgramForManager] = useState<Program | null>(null);
+  const [selectedManagerIds, setSelectedManagerIds] = useState<Set<string>>(new Set());
+  const [managerSearchQuery, setManagerSearchQuery] = useState("");
+  const [isAssigningManagers, setIsAssigningManagers] = useState(false);
+
+  // Fetch all managers
+  const { data: allManagers } = useQuery({
+    queryKey: ["users", "managers"],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, "users"));
+      return snap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<User, "id">) }))
+        .filter((u) => u.role === "manager" && u.isActive) as User[];
+    },
+    enabled: isAdmin,
+  });
 
   // DnD sensors
   const sensors = useSensors(
@@ -831,6 +882,37 @@ export default function AdminProgramsPage() {
 
   const handleUpdateGroup = (programId: string, groupId: string | null) => {
     updateProgramGroup.mutate({ programId, groupId });
+  };
+
+  // Manager assignment
+  const openManagerDialogHandler = (program: Program) => {
+    setSelectedProgramForManager(program);
+    setSelectedManagerIds(new Set((program as unknown as { assignedManagers?: string[] }).assignedManagers ?? []));
+    setManagerSearchQuery("");
+    setOpenManagerDialog(true);
+  };
+
+  const handleAssignManagers = async () => {
+    if (!selectedProgramForManager) return;
+    if (user?.role !== "admin") {
+      alert("Chỉ admin mới có quyền gán quản lý");
+      return;
+    }
+    setIsAssigningManagers(true);
+    try {
+      const res = await apiPut(
+        `/api/programs/${selectedProgramForManager.id}/managers`,
+        { managerIds: Array.from(selectedManagerIds) }
+      );
+      if (res.success) {
+        setOpenManagerDialog(false);
+        queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+      } else {
+        alert(res.error ?? "Lỗi gán quản lý");
+      }
+    } finally {
+      setIsAssigningManagers(false);
+    }
   };
 
   const handleCreateGroup = () => {
@@ -1262,6 +1344,7 @@ export default function AdminProgramsPage() {
                           groups={groups}
                           onUpdateGroup={handleUpdateGroup}
                           isAdmin={isAdmin}
+                          onOpenManagerDialog={openManagerDialogHandler}
                         />
                       ))}
                     </div>
@@ -1286,6 +1369,7 @@ export default function AdminProgramsPage() {
                   deletingId={deletingId}
                   isAdmin={isAdmin}
                   onUpdateGroupName={handleUpdateGroupName}
+                  onOpenManagerDialog={openManagerDialogHandler}
                 />
               );
             })}
@@ -1476,6 +1560,109 @@ export default function AdminProgramsPage() {
           </div>
         </div>
       )}
+
+      {/* Dialog: Gán quản lý */}
+      <Dialog open={openManagerDialog} onOpenChange={setOpenManagerDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="h-5 w-5" />
+              Gán quản lý cho chương trình
+            </DialogTitle>
+            <DialogDescription>
+              Chọn các quản lý được phép quản lý chương trình &ldquo;{selectedProgramForManager?.title}&rdquo;.
+              Chỉ quản lý được chọn mới có thể chỉnh sửa và gán nhân viên.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Tìm quản lý..."
+                className="pl-9"
+                value={managerSearchQuery}
+                onChange={(e) => setManagerSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Manager list */}
+            <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2">
+              {(allManagers ?? [])
+                .filter((m) => {
+                  if (!managerSearchQuery) return true;
+                  const q = managerSearchQuery.toLowerCase();
+                  return (
+                    m.displayName?.toLowerCase().includes(q) ||
+                    m.email?.toLowerCase().includes(q)
+                  );
+                })
+                .map((manager) => (
+                  <label
+                    key={manager.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted/50"
+                  >
+                    <Checkbox
+                      checked={selectedManagerIds.has(manager.id)}
+                      onCheckedChange={(checked) => {
+                        setSelectedManagerIds((prev) => {
+                          const next = new Set(prev);
+                          if (checked) next.add(manager.id);
+                          else next.delete(manager.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <Avatar className="h-7 w-7 shrink-0">
+                      <AvatarImage src={manager.photoURL} />
+                      <AvatarFallback className="text-xs">
+                        {getInitials(manager.displayName ?? "M")}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{manager.displayName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{manager.email}</p>
+                    </div>
+                  </label>
+                ))}
+              {(allManagers ?? []).filter((m) => {
+                if (!managerSearchQuery) return true;
+                const q = managerSearchQuery.toLowerCase();
+                return (
+                  m.displayName?.toLowerCase().includes(q) ||
+                  m.email?.toLowerCase().includes(q)
+                );
+              }).length === 0 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  {managerSearchQuery ? "Không tìm thấy quản lý" : "Chưa có quản lý nào"}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOpenManagerDialog(false)}
+              disabled={isAssigningManagers}
+            >
+              Hủy
+            </Button>
+            <Button
+              onClick={handleAssignManagers}
+              disabled={isAssigningManagers}
+            >
+              {isAssigningManagers ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              Lưu ({selectedManagerIds.size} quản lý)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }
