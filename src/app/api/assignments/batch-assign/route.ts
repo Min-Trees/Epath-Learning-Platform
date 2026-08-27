@@ -42,15 +42,32 @@ export async function POST(req: NextRequest) {
     for (const programId of body.programIds) {
       const progSnap = await adminDb.collection("programs").doc(programId).get();
       if (!progSnap.exists) continue;
-      const progData = progSnap.data() as { status?: string; managerId?: string };
+      const progData = progSnap.data() as { status?: string; assignedManagers?: string[] };
       if (progData.status !== "published") continue;
-      // Manager: chỉ gán được program của họ
-      if (!isAdmin(me) && progData.managerId !== me.uid) continue;
+      // Manager: chỉ gán được program được gán cho họ qua assignedManagers
+      if (!isAdmin(me) && (!progData.assignedManagers || !progData.assignedManagers.includes(me.uid))) continue;
       validProgramIds.push(programId);
     }
 
     if (validProgramIds.length === 0) {
-      return bad("Không có chương trình nào hợp lệ (đã published và thuộc quyền)", 400);
+      // Kiểm tra lý do không có program hợp lệ
+      const reasons: string[] = [];
+      for (const programId of body.programIds) {
+        const progSnap = await adminDb.collection("programs").doc(programId).get();
+        if (!progSnap.exists) {
+          reasons.push(`Program "${programId}" không tồn tại`);
+          continue;
+        }
+        const progData = progSnap.data() as { status?: string; assignedManagers?: string[]; title?: string };
+        if (progData.status !== "published") {
+          reasons.push(`"${progData.title || programId}" chưa được publish (trạng thái: ${progData.status})`);
+        }
+        if (!isAdmin(me) && (!progData.assignedManagers || !progData.assignedManagers.includes(me.uid))) {
+          reasons.push(`"${progData.title || programId}" không thuộc quyền quản lý của bạn`);
+        }
+      }
+      const detailMessage = reasons.length > 0 ? `: ${reasons.join("; ")}` : "";
+      return bad("Không có chương trình nào hợp lệ (đã published và thuộc quyền)" + detailMessage, 400);
     }
 
     const created: string[] = [];
