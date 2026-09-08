@@ -14,6 +14,7 @@ import {
   Edit,
   Check,
   Loader2,
+  Star,
   MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,7 @@ type ProgramItem = {
     groupId?: string | null;
   } | null;
   progress?: { totalLessons: number; completedLessons: number; percent: number };
+  testScore?: { bestScore: number; passed: boolean; hasPendingReview: boolean };
 };
 
 const STATUS_LABEL: Record<string, { label: string; variant: "default" | "secondary" | "warning" | "success" }> = {
@@ -74,7 +76,11 @@ export default function EmployeeProgramsPage() {
   } = useQuery({
     queryKey: ["me", "programs"],
     enabled: Boolean(user?.id),
-    staleTime: 30 * 1000,
+    // Tăng staleTime từ 30s lên 5 phút để giảm số lần gọi API
+    // Data thường không thay đổi thường xuyên, nên có thể cache lâu hơn
+    staleTime: 5 * 60 * 1000, // 5 phút
+    // gcTime: 10 phút - giữ data trong cache để navigation nhanh hơn
+    gcTime: 10 * 60 * 1000,
     queryFn: async () => {
       const res = await myProgramsService.list();
       if (!res.success) {
@@ -417,6 +423,7 @@ function ProgramCard({ item, groups, isAdmin }: { item: ProgramItem; groups: Pro
   const percent = item.progress?.percent ?? 0;
   const queryClient = useQueryClient();
   const currentGroup = groups.find((g) => g.id === item.program?.groupId);
+  const testScore = item.testScore;
 
   const updateGroupMutation = useMutation({
     mutationFn: async ({ programId, groupId }: { programId: string; groupId: string | null }) => {
@@ -492,6 +499,20 @@ function ProgramCard({ item, groups, isAdmin }: { item: ProgramItem; groups: Pro
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
+          {testScore && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Star className="h-3 w-3" />
+                Điểm thi cao nhất
+              </span>
+              <span className="font-medium">
+                {testScore.bestScore}%
+                {testScore.hasPendingReview && (
+                  <span className="ml-1 text-yellow-600 text-[10px]">(Chờ chấm)</span>
+                )}
+              </span>
+            </div>
+          )}
           <div>
             <div className="mb-1 flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Tiến độ</span>

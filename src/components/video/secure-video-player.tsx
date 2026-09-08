@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertCircle,
-  ShieldCheck,
   Loader2,
   Play,
   Maximize2,
@@ -15,6 +14,7 @@ import {
 import { useVideoProgress } from "@/hooks/use-video-progress";
 import { useBlockDevTools } from "@/hooks/use-block-devtools";
 import { usePrefetchVideo } from "@/hooks/use-prefetch-video";
+import { useVideoServiceWorker } from "@/hooks/use-video-service-worker";
 import type { PrefetchHandle } from "@/hooks/use-prefetch-video";
 import { apiPost } from "@/lib/api-client";
 
@@ -60,6 +60,9 @@ export function SecureVideoPlayer({
   // startFn ổn định identity (useCallback []). Không wrap trong object
   // để tránh tạo ref mới mỗi render.
   const startFn = usePrefetchVideo();
+  
+  // Đăng ký service worker để cache video chunks
+  useVideoServiceWorker();
 
   // Chặn DevTools + view source. Khi phát hiện DevTools mở → pause video + phủ overlay.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
@@ -215,7 +218,7 @@ useEffect(() => {
           controlsList="nodownload noremoteplayback noplaybackrate"
           disablePictureInPicture
           playsInline
-          preload="auto"
+          preload="metadata"
           onContextMenu={handleContextMenu}
           onTimeUpdate={onTimeUpdate}
           onPlay={onPlay}
@@ -223,6 +226,11 @@ useEffect(() => {
           onWaiting={() => setLoading(true)}
           onCanPlay={() => setLoading(false)}
           onDragStart={handleDragStart}
+          onLoadedMetadata={() => {
+            // Khi metadata load xong, prefetch thêm chunks
+            // Video element đã bắt đầu tải rồi, ta chỉ warm cache thêm
+            setHasLoaded(true);
+          }}
           className="h-full w-full"
         />
 
@@ -323,11 +331,6 @@ useEffect(() => {
           </button>
         </Alert>
       )}
-
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <ShieldCheck className="h-3 w-3" />
-        HTTP Range streaming · tải song song 4 đoạn · URL S3 ẩn · token 120s · chống DevTools
-      </p>
     </div>
   );
 }

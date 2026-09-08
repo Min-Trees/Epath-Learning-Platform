@@ -32,23 +32,29 @@ const ReactQueryDevtools = dynamic(
 /**
  * QueryClient cấu hình cho toàn app.
  *
- * Giải thích cấu hình:
- * - staleTime: 30s → trong 30s, các component mount lại sẽ thấy data ngay (không gọi Firestore).
- * - gcTime: 5 phút → cache tồn tại 5 phút sau khi không ai dùng (quay lại tab cũ thấy data ngay).
- * - refetchOnWindowFocus: false → KHÔNG re-fetch khi user Alt+Tab qua lại (giảm request).
- *   (User bấm "Tải lại" nếu muốn data mới nhất.)
- * - retry: 1 → chỉ retry 1 lần khi lỗi mạng (đỡ chờ).
- * - placeholderData: keepPreviousData ở hook → chuyển trang không flash loading.
+ * OPTIMIZATION v2 - Cải thiện performance:
+ * - staleTime: 5 phút → trong 5 phút, các component mount lại sẽ thấy data ngay (không gọi API).
+ *   Giảm đáng kể số lượng request khi user navigate qua lại giữa các trang.
+ * - gcTime: 10 phút → cache tồn tại 10 phút sau khi không ai dùng.
+ * - refetchOnWindowFocus: false → KHÔNG re-fetch khi user Alt+Tab qua lại.
+ * - refetchOnMount: false → dùng cache trước, refresh ngầm nếu stale.
+ * - retry: 2 → retry 2 lần khi lỗi mạng thay vì 1.
+ * - retryDelay: exponential backoff với cap 10s thay vì 5s.
  */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30 * 1000,
-      gcTime: 5 * 60 * 1000,
+      // Tăng từ 30s lên 5 phút để giảm số request
+      staleTime: 5 * 60 * 1000,
+      // Tăng từ 5 phút lên 10 phút để giữ data lâu hơn
+      gcTime: 10 * 60 * 1000,
+      // Không refetch khi window focus để tránh request liên tục
       refetchOnWindowFocus: false,
-      refetchOnMount: false, // dùng cache trước, refresh ngầm nếu stale
-      retry: 1,
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+      // Không refetch khi mount - dùng cached data trước
+      refetchOnMount: false,
+      // Retry 2 lần thay vì 1 để tăng khả năng thành công
+      retry: 2,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     },
     mutations: {
       retry: 0,

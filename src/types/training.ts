@@ -169,6 +169,7 @@ export interface TestResult {
   passed: boolean;
   attemptCount: number;
   lastAttemptAt: Date;
+  hasPendingReview?: boolean; // true khi có essay chờ manager/admin chấm
 }
 
 export interface ProgramProgress {

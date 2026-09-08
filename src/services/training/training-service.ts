@@ -206,6 +206,7 @@ export const myProgramsService = {
         assignedAt: Date | null;
         program: { id: string; title: string; description: string; status: string; groupId?: string | null } | null;
         progress?: { totalLessons: number; completedLessons: number; percent: number };
+        testScore?: { bestScore: number; passed: boolean; hasPendingReview: boolean };
       }>;
       groups?: ProgramGroup[];
     }>("/api/me/programs"),
