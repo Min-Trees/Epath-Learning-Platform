@@ -1,0 +1,61 @@
+# ============================================================================
+# Deploy Ignore — File exclude khi rsync/upload code lên VPS
+# ============================================================================
+# Sử dụng cùng cú pháp .gitignore nhưng dùng cho deploy script.
+# Mục đích: chỉ upload source code, không upload build cache, dependencies,
+# docs, slides, file env thật.
+# ============================================================================
+
+# Build artifacts
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Dependencies (cài lại trên VPS bằng npm ci)
+node_modules/
+
+# Version control
+.git/
+.gitignore
+
+# Documentation, slides, reports (không cần trên production)
+docs/
+docs_assets/
+*.pptx
+*.docx
+*.pdf
+README.md
+DEPLOY.md
+fix_lag.md
+BaoCao_*
+Noi_Dung_Slide_*
+Huong_Dan_*
+Slide_*
+
+# Logs
+*.log
+dev-output.log
+dev-error.log
+build.log
+dev.log
+_devlog.txt
+
+# Environment files (CHỈ file rỗng .env.production.example được phép upload)
+.env
+.env.local
+.env.*.local
+env-vercel.env
+.env.production
+.deploy-ignore.bak
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+coverage/
+.next-test/

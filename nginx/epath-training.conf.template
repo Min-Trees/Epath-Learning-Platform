@@ -1,0 +1,130 @@
+# Nginx reverse proxy template for EpathSystemTraining
+# Domain: lp-intranet.id.vn → upstream port 3000
+#
+# Cách dùng trên VPS:
+#   1. Copy file này về /etc/nginx/sites-available/epath-training.conf
+#      (giữ nguyên hoặc sed domain nếu dùng subdomain khác)
+#   2. Tạo symlink: ln -s /etc/nginx/sites-available/epath-training.conf \
+#                     /etc/nginx/sites-enabled/epath-training.conf
+#   3. Test: nginx -t
+#   4. Reload: systemctl reload nginx
+#   5. SSL: certbot --nginx -d lp-intranet.id.vn -d www.lp-intranet.id.vn
+#
+# File này KHÔNG chứa block listen 443 ssl — sẽ được certbot tự động thêm
+# sau khi chạy `certbot --nginx`.
+
+# --- Upstream ---
+upstream epath_training_app {
+    server 127.0.0.1:3000;
+    keepalive 64;
+}
+
+# --- HTTP → redirect to HTTPS sau khi có SSL (certbot sẽ modify block này) ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name lp-intranet.id.vn www.lp-intranet.id.vn;
+
+    # Cho phép Let's Encrypt challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    # Cho phép health check từ localhost không bị redirect
+    location /api/health {
+        proxy_pass http://127.0.0.1:3000;
+        access_log off;
+    }
+
+    # Mọi request khác → redirect HTTPS (certbot sẽ uncomment khi cài SSL)
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# --- HTTPS (certbot sẽ tự thêm ssl_certificate directives) ---
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name lp-intranet.id.vn www.lp-intranet.id.vn;
+
+    # SSL certificates (certbot sẽ tự thay)
+    # ssl_certificate     /etc/letsencrypt/live/lp-intranet.id.vn/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/lp-intranet.id.vn/privkey.pem;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Upload size — phải >= next.config.ts (10mb) + buffer
+    client_max_body_size 50M;
+    client_body_buffer_size 128k;
+    client_header_buffer_size 1k;
+    large_client_header_buffers 4 8k;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Static assets cache (Next.js hashed bundles)
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_cache_valid 200 365d;
+        add_header Cache-Control "public, immutable, max-age=31536000";
+        expires 365d;
+        access_log off;
+    }
+
+    # Public files
+    location /public/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_cache_valid 200 30d;
+        add_header Cache-Control "public, max-age=2592000";
+        access_log off;
+    }
+
+    # App + API
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+
+        # Timeouts cho video streaming (lên tới 60s)
+        proxy_connect_timeout 60s;
+        proxy_send_timeout    60s;
+        proxy_read_timeout    60s;
+
+        # Buffering off cho streaming real-time
+        proxy_buffering       off;
+        proxy_request_buffering off;
+    }
+
+    # Error pages
+    error_page 502 503 504 /custom_50x.html;
+    location = /custom_50x.html {
+        root /usr/share/nginx/html;
+        internal;
+    }
+}

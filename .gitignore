@@ -42,6 +42,11 @@ env-*.env
 .env.*
 !.env.example
 
+# File deploy artifacts (được track trong git, dùng cho rsync/deploy)
+# Bỏ .bak để tránh backup files được commit
+!.deploy-ignore
+.deploy-ignore.bak
+
 # Vercel
 .vercel
 
