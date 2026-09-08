@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  S3Client,
+  type GetObjectCommandOutput,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { verifyStreamSession } from "@/lib/stream-session";
+import { verifyStreamSession, type StreamSessionPayload } from "@/lib/stream-session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -58,82 +62,58 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
 /**
  * CDN Mode: Generate signed URL and redirect
- * This allows Cloudflare/Vercel to cache video chunks at the edge
+ * Cloudflare/Vercel handles streaming at the edge.
  */
-async function handleCdnMode(session: Awaited<ReturnType<typeof verifyStreamSession>>, req: NextRequest) {
+async function handleCdnMode(
+  session: StreamSessionPayload | null,
+  req: NextRequest
+) {
   if (!session) return new NextResponse("Invalid session", { status: 401 });
 
-  // Get video size for Range request handling at CDN level
-  let contentLength: number | undefined;
-  try {
-    const headCmd = new GetObjectCommand({
-      Bucket: process.env.S3_BUCKET ?? "",
-      Key: session.fk,
-    });
-    const headRes = await s3.send(headCmd);
-    contentLength = headRes.ContentLength;
-  } catch {
-    // Ignore head error, CDN will handle it
+  // Forward Range requests directly to S3 (CDN cannot handle Range for signed URLs easily)
+  const rangeHeader = req.headers.get("range");
+  if (rangeHeader) {
+    return session ? handleProxyMode(req, session) : new NextResponse("Invalid session", { status: 401 });
   }
 
-  // Generate signed URL with longer expiry for CDN caching
+  // Generate signed URL for CDN
   const signedUrlCmd = new GetObjectCommand({
     Bucket: process.env.S3_BUCKET ?? "",
     Key: session.fk,
-    ...(contentLength ? { ContentLength: contentLength } : {}),
   });
 
   try {
-    // Add response headers for CDN caching
-    const signedUrl = await getSignedUrl(s3, signedUrlCmd, { 
-      expiresIn: SIGNED_URL_EXPIRY 
+    const signedUrl = await getSignedUrl(s3, signedUrlCmd, {
+      expiresIn: SIGNED_URL_EXPIRY,
     });
 
-    // Redirect to CDN with signed URL
-    // CDN will cache chunks based on Range headers
     const url = new URL(signedUrl);
     const cdnUrl = `${CDN_DOMAIN}${url.pathname}${url.search}`;
 
     const headers = new Headers({
-      "Location": cdnUrl,
+      Location: cdnUrl,
       "Cache-Control": "private, max-age=3600",
       "Content-Type": getContentType(session.fk),
       "Accept-Ranges": "bytes",
       "X-Content-Type-Options": "nosniff",
     });
 
-    if (contentLength) {
-      headers.set("Content-Length", String(contentLength));
-    }
-
-    // Check for Range header and forward it
-    const rangeHeader = req.headers.get("range");
-    if (rangeHeader) {
-      headers.set("X-Original-Range", rangeHeader);
-      // For Range requests, proxy directly to S3
-      return handleProxyMode(req, session);
-    }
-
     return new NextResponse(null, { status: 302, headers });
   } catch (e) {
     console.error("[stream/file] CDN signed URL error:", e);
-    // Fallback to proxy mode
-    return handleProxyMode(req, session);
+    return session ? handleProxyMode(req, session) : new NextResponse("Invalid session", { status: 401 });
   }
 }
 
 /**
- * Proxy Mode: Direct S3 streaming (existing behavior)
- * Optimized with:
- * - Streaming response for better performance
- * - Better cache headers
- * - Connection pooling
- * - Partial content support
+ * Proxy Mode: Direct S3 streaming
+ * Forward Range header → browser does HTTP Range streaming natively.
+ * Server-side streaming via Web ReadableStream for efficient chunk transfer.
  */
-async function handleProxyMode(req: NextRequest, session: NonNullable<Awaited<ReturnType<typeof verifyStreamSession>>>) {
-  // Forward Range header so browser can do byte-range requests (HTTP 206).
-  // This is what unlocks YouTube-style streaming — server doesn't have to
-  // download the whole file before responding.
+async function handleProxyMode(
+  req: NextRequest,
+  session: StreamSessionPayload
+) {
   const rangeHeader = req.headers.get("range") ?? undefined;
   const isRangeRequest = Boolean(rangeHeader);
 
@@ -143,31 +123,39 @@ async function handleProxyMode(req: NextRequest, session: NonNullable<Awaited<Re
     ...(rangeHeader ? { Range: rangeHeader } : {}),
   });
 
-  const upstream = await s3.send(cmd);
+  let upstream: GetObjectCommandOutput;
+  try {
+    upstream = await s3.send(cmd);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[stream/file] S3 error:", msg);
+    // S3 returns: "The specified key does not exist." or contains "NoSuchKey"
+    if (/NoSuchKey|does not exist|no such key|NotFound|404/i.test(msg)) {
+      return new NextResponse("Video not found in storage", { status: 404 });
+    }
+    if (/access denied|forbidden|403/i.test(msg)) {
+      return new NextResponse("Access denied to storage", { status: 403 });
+    }
+    return new NextResponse(`Stream error: ${msg}`, { status: 500 });
+  }
+
   if (!upstream.Body) {
-    return new NextResponse("File not found", { status: 404 });
+    return new NextResponse("Empty file", { status: 404 });
   }
 
   const contentType = upstream.ContentType ?? getContentType(session.fk);
-  
-  // Optimized cache headers:
-  // - Range requests: short cache (60s) since they're dynamic
-  // - Non-range requests: longer cache (1 hour) for full video
-  // - stale-while-revalidate: serve stale while fetching fresh
+
   const headers = new Headers({
     "Content-Type": contentType,
     "Accept-Ranges": "bytes",
     "Content-Disposition": "inline",
-    "Cache-Control": isRangeRequest 
-      ? "private, max-age=60" 
+    "Cache-Control": isRangeRequest
+      ? "private, max-age=60"
       : "public, max-age=3600, stale-while-revalidate=7200",
     "X-Content-Type-Options": "nosniff",
-    // Add ETag for better caching
     "ETag": upstream.ETag ?? `"${session.fk}"`,
-    // Video-specific headers for better browser buffering
-    "X-Content-Duration": "available",
   });
-  
+
   if (upstream.ContentLength != null) {
     headers.set("Content-Length", String(upstream.ContentLength));
   }
@@ -175,22 +163,17 @@ async function handleProxyMode(req: NextRequest, session: NonNullable<Awaited<Re
     headers.set("Content-Range", upstream.ContentRange);
   }
 
-  // Convert AWS SDK response body to Web ReadableStream
-  // AWS SDK v3 body can be Uint8Array, Blob, or Node.js Readable
   const body = upstream.Body;
 
-  // Node.js Readable stream từ AWS SDK - check trước vì body thực tế là Readable
-  // (type AWS SDK trả về là Uint8Array & Readable nên cần check pipe trước)
+  // Convert AWS SDK v3 Node.js Readable to Web ReadableStream
   if (
     typeof body === "object" &&
     body !== null &&
     "pipe" in body &&
     typeof (body as { pipe?: unknown }).pipe === "function"
   ) {
-    // Node.js Readable stream - STREAM THỰC SỰ, không buffer toàn bộ
     const nodeStream = body as unknown as import("stream").Readable;
 
-    // Tạo Web ReadableStream từ Node.js Readable để stream chunk-by-chunk
     const webStream = new ReadableStream({
       start(controller) {
         nodeStream.on("data", (chunk: Buffer | string | Uint8Array) => {
@@ -202,17 +185,14 @@ async function handleProxyMode(req: NextRequest, session: NonNullable<Awaited<Re
             controller.enqueue(new Uint8Array(Buffer.from(chunk)));
           }
         });
-
         nodeStream.on("end", () => {
-          controller.close();
+          try { controller.close(); } catch { /* already closed */ }
         });
-
         nodeStream.on("error", (err: Error) => {
-          controller.error(err);
+          try { controller.error(err); } catch { /* already closed */ }
         });
       },
       cancel() {
-        // Cleanup when client disconnects
         nodeStream.destroy?.();
       },
     });
@@ -221,34 +201,26 @@ async function handleProxyMode(req: NextRequest, session: NonNullable<Awaited<Re
       status: isRangeRequest ? 206 : 200,
       headers,
     });
-  } else if (body instanceof Uint8Array) {
-    // Uint8Array - trả trực tiếp
-    return new Response(body as unknown as BodyInit, {
-      status: isRangeRequest ? 206 : 200,
-      headers,
-    });
   } else if (body instanceof Blob) {
-    // Blob - trả trực tiếp
     return new Response(body, {
       status: isRangeRequest ? 206 : 200,
       headers,
     });
+  } else if (body instanceof Uint8Array) {
+    return new Response(body as unknown as BodyInit, {
+      status: isRangeRequest ? 206 : 200,
+      headers,
+    });
   } else if (typeof body === "object" && body !== null && "toWebStream" in body) {
-    // Blob-like object với toWebStream
     const webStream = (body as { toWebStream: () => ReadableStream }).toWebStream();
     return new Response(webStream, {
       status: isRangeRequest ? 206 : 200,
       headers,
     });
-  } else if (body && typeof body === "object" && "getReader" in body) {
-    // Web ReadableStream
-    return new Response(body as unknown as ReadableStream, {
-      status: isRangeRequest ? 206 : 200,
-      headers,
-    });
   } else {
-    // Unknown type - fallback
-    return new Response(String(body ?? ""), {
+    // Fallback: encode as UTF-8 Uint8Array
+    const text = body != null ? String(body) : "";
+    return new Response(new TextEncoder().encode(text), {
       status: isRangeRequest ? 206 : 200,
       headers,
     });

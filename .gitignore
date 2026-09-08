@@ -48,3 +48,7 @@ env-*.env
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local build logs
+build.log
+

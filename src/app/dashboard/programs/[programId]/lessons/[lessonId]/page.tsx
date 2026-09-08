@@ -42,15 +42,7 @@ import type {
   TestSubmitDetailResult,
   PublicTestQuestion,
 } from "@/types/training";
-
-// Lazy load heavy video/pdf components
-const SecureVideoPlayer = dynamic(
-  () => import("@/components/video/secure-video-player").then((m) => m.SecureVideoPlayer),
-  {
-    loading: () => <Skeleton className="aspect-video w-full" />,
-    ssr: false,
-  }
-);
+import { SecureVideoPlayer } from "@/components/video/secure-video-player";
 
 const SecurePdfViewer = dynamic(
   () => import("@/components/video/secure-pdf-viewer").then((m) => m.SecurePdfViewer),
