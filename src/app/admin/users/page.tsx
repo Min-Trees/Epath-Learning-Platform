@@ -398,7 +398,15 @@ export default function AdminUsersPage() {
     email: string;
     password: string;
     displayName: string;
+    assignedProgramTitles?: string[];
   } | null>(null);
+  const [welcomeSent, setWelcomeSent] = useState(false);
+  const [welcomeSending, setWelcomeSending] = useState(false);
+  const [welcomeError, setWelcomeError] = useState<string | null>(null);
+
+  const APP_LOGIN_URL =
+    (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ||
+      "https://lptraininghub.lp-intranet.id.vn") + "/login";
 
   // Programs for assignment
   const [availablePrograms, setAvailablePrograms] = useState<Program[]>([]);
@@ -506,7 +514,13 @@ export default function AdminUsersPage() {
         throw new Error(res.error ?? "Tạo người dùng thất bại");
       }
       // Store credentials and show dialog
-      setNewUserCredentials({ email, password, displayName });
+      const programTitles = availablePrograms
+        .filter((p) => selectedProgramIds.has(p.id))
+        .map((p) => p.title)
+        .filter(Boolean);
+      setNewUserCredentials({ email, password, displayName, assignedProgramTitles: programTitles });
+      setWelcomeSent(false);
+      setWelcomeError(null);
       setShowCredentialDialog(true);
       closeCreate();
       void refetch();
@@ -1113,11 +1127,52 @@ interface CredentialDialogProps {
     email: string;
     password: string;
     displayName: string;
+    assignedProgramTitles?: string[];
   } | null;
 }
 
 function CredentialDialog({ open, onOpenChange, credentials }: CredentialDialogProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [welcomeSent, setWelcomeSent] = useState(false);
+  const [welcomeSending, setWelcomeSending] = useState(false);
+  const [welcomeError, setWelcomeError] = useState<string | null>(null);
+
+  const APP_LOGIN_URL =
+    (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ||
+      "https://lptraininghub.lp-intranet.id.vn") + "/login";
+
+  // Reset trạng thái khi đóng/mở dialog với credentials mới
+  useEffect(() => {
+    if (open) {
+      setWelcomeSent(false);
+      setWelcomeError(null);
+      setCopiedField(null);
+    }
+  }, [open, credentials?.email]);
+
+  const handleSendWelcome = async () => {
+    if (!credentials) return;
+    setWelcomeSending(true);
+    setWelcomeError(null);
+    try {
+      const { apiPost } = await import("@/lib/api-client");
+      const res = await apiPost("/api/admin/users/send-welcome", {
+        email: credentials.email,
+        password: credentials.password,
+        displayName: credentials.displayName,
+        assignedProgramTitles: credentials.assignedProgramTitles ?? [],
+      });
+      if (res.success) {
+        setWelcomeSent(true);
+      } else {
+        setWelcomeError(res.error ?? "Gửi email thất bại");
+      }
+    } catch (e) {
+      setWelcomeError(e instanceof Error ? e.message : "Lỗi không xác định");
+    } finally {
+      setWelcomeSending(false);
+    }
+  };
 
   const handleCopy = async (text: string, field: string) => {
     try {
@@ -1139,9 +1194,9 @@ function CredentialDialog({ open, onOpenChange, credentials }: CredentialDialogP
 
   const handleCopyAll = async () => {
     if (!credentials) return;
-    const text = `Thông tin đăng nhập LP Training Hub:
+    const text = `Thông tin đăng nhập LittlePeople Training Hub:
 
-🔗 Link: https://lp-traininghub.vercel.app/
+🔗 Link: ${APP_LOGIN_URL}
 📧 Email: ${credentials.email}
 🔑 Mật khẩu: ${credentials.password}
 
@@ -1195,7 +1250,7 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs"
-                  onClick={() => handleCopy("https://lp-traininghub.vercel.app/", "link")}
+                  onClick={() => handleCopy(APP_LOGIN_URL, "link")}
                 >
                   {copiedField === "link" ? (
                     <Check className="h-3 w-3 mr-1 text-green-500" />
@@ -1205,8 +1260,8 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "link" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border">
-                https://lp-traininghub.vercel.app/
+              <p className="text-sm font-mono bg-background p-2 rounded border break-all">
+                {APP_LOGIN_URL}
               </p>
             </div>
 
@@ -1264,7 +1319,29 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
           </Alert>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 flex-col sm:flex-row">
+          <Button
+            variant="default"
+            onClick={handleSendWelcome}
+            disabled={welcomeSending || welcomeSent}
+          >
+            {welcomeSending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Đang gửi...
+              </>
+            ) : welcomeSent ? (
+              <>
+                <Check className="mr-2 h-4 w-4 text-green-500" />
+                Đã gửi email
+              </>
+            ) : (
+              <>
+                <Mail className="mr-2 h-4 w-4" />
+                Gửi email cho nhân viên
+              </>
+            )}
+          </Button>
           <Button variant="outline" onClick={handleCopyAll}>
             {copiedField === "all" ? (
               <Check className="mr-2 h-4 w-4 text-green-500" />
@@ -1273,8 +1350,18 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
             )}
             {copiedField === "all" ? "Đã copy tất cả" : "Copy tất cả"}
           </Button>
-          <Button onClick={() => onOpenChange(false)}>Đóng</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Đóng</Button>
         </DialogFooter>
+        {welcomeError && (
+          <Alert variant="destructive" className="mt-2">
+            <AlertDescription className="text-xs">{welcomeError}</AlertDescription>
+          </Alert>
+        )}
+        {welcomeSent && (
+          <p className="text-xs text-green-600 text-center -mt-1">
+            ✅ Đã gửi email thông tin đăng nhập đến {credentials.email}.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
