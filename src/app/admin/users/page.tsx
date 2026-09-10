@@ -863,7 +863,7 @@ export default function AdminUsersPage() {
 
       {/* Dialog tạo người dùng mới */}
       <Dialog open={createOpen} onOpenChange={(o) => !o && closeCreate()}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg w-[95vw] max-h-[90vh] overflow-x-hidden overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-5 w-5" />
@@ -1237,33 +1237,34 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-950">
+      <DialogContent className="max-w-md w-[95vw] max-h-[90vh] overflow-x-hidden overflow-y-auto bg-white dark:bg-slate-950">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-green-600">
-            <Check className="h-5 w-5" />
-            Tạo người dùng thành công!
+          <DialogTitle className="flex items-center gap-2 text-green-600 break-words">
+            <Check className="h-5 w-5 shrink-0" />
+            <span className="break-words">Tạo người dùng thành công!</span>
           </DialogTitle>
-          <DialogDescription>
-            Gửi thông tin đăng nhập cho nhân viên: {credentials.displayName}
+          <DialogDescription className="break-words">
+            Gửi thông tin đăng nhập cho nhân viên: <strong className="break-words">{credentials.displayName}</strong>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 min-w-0">
           {/* Account info card */}
-          <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Tên nhân viên:</span>
-              <span className="font-medium">{credentials.displayName}</span>
+          <div className="rounded-lg border bg-muted/50 p-4 space-y-4 min-w-0">
+            {/* Tên nhân viên */}
+            <div className="space-y-1 min-w-0">
+              <p className="text-xs text-muted-foreground">Tên nhân viên</p>
+              <p className="font-medium break-words">{credentials.displayName}</p>
             </div>
 
             {/* Link */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Link đăng nhập:</span>
+            <div className="space-y-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">Link đăng nhập</span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-7 text-xs shrink-0"
                   onClick={() => handleCopy(APP_LOGIN_URL, "link")}
                 >
                   {copiedField === "link" ? (
@@ -1274,19 +1275,19 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "link" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere">
+              <p className="text-xs font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere min-w-0">
                 {APP_LOGIN_URL}
               </p>
             </div>
 
             {/* Email */}
             <div className="space-y-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Email:</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">Email</span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-7 text-xs shrink-0"
                   onClick={() => handleCopy(credentials.email, "email")}
                 >
                   {copiedField === "email" ? (
@@ -1297,19 +1298,19 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "email" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere">
+              <p className="text-xs font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere min-w-0">
                 {credentials.email}
               </p>
             </div>
 
             {/* Password */}
             <div className="space-y-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Mật khẩu:</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">Mật khẩu</span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-7 text-xs shrink-0"
                   onClick={() => handleCopy(credentials.password, "password")}
                 >
                   {copiedField === "password" ? (
@@ -1320,7 +1321,7 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "password" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere">
+              <p className="text-xs font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere min-w-0">
                 {credentials.password}
               </p>
             </div>
@@ -1333,12 +1334,13 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
           </Alert>
         </div>
 
-        <DialogFooter className="gap-2 flex-col sm:flex-row">
+        <DialogFooter className="gap-2 flex-col-reverse sm:flex-col">
           {!welcomeSent && (
             <Button
               variant="default"
               onClick={handleSendWelcome}
               disabled={welcomeSending}
+              className="w-full"
             >
               {welcomeSending ? (
                 <>
@@ -1353,15 +1355,17 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
               )}
             </Button>
           )}
-          <Button variant="outline" onClick={handleCopyAll}>
-            {copiedField === "all" ? (
-              <Check className="mr-2 h-4 w-4 text-green-500" />
-            ) : (
-              <Copy className="mr-2 h-4 w-4" />
-            )}
-            {copiedField === "all" ? "Đã copy tất cả" : "Copy tất cả"}
-          </Button>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Đóng</Button>
+          <div className="flex flex-col-reverse sm:flex-row gap-2 w-full">
+            <Button variant="outline" onClick={handleCopyAll} className="flex-1">
+              {copiedField === "all" ? (
+                <Check className="mr-2 h-4 w-4 text-green-500" />
+              ) : (
+                <Copy className="mr-2 h-4 w-4" />
+              )}
+              {copiedField === "all" ? "Đã copy tất cả" : "Copy tất cả"}
+            </Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 sm:flex-none">Đóng</Button>
+          </div>
         </DialogFooter>
         {welcomeError && (
           <Alert variant="destructive" className="mt-2">
