@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest) {
     const batch = adminDb.batch();
     for (const p of body.programs) {
       const ref = adminDb.collection("programs").doc(p.id);
-      const updates: Record<string, unknown> = { order: p.order, updatedAt: new Date() };
+      const updates: { [k: string]: any } = { order: p.order, updatedAt: new Date() };
       if ("groupId" in p) {
         updates.groupId = p.groupId ?? null;
       }
