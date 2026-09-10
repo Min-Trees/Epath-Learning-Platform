@@ -73,6 +73,8 @@ interface CreateUserResponse {
   displayName: string;
   role: UserRole;
   department: string | null;
+  emailSent?: boolean;
+  emailError?: string | null;
 }
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -399,6 +401,8 @@ export default function AdminUsersPage() {
     password: string;
     displayName: string;
     assignedProgramTitles?: string[];
+    autoEmailSent?: boolean;
+    autoEmailError?: string | null;
   } | null>(null);
   const [welcomeSent, setWelcomeSent] = useState(false);
   const [welcomeSending, setWelcomeSending] = useState(false);
@@ -513,14 +517,21 @@ export default function AdminUsersPage() {
       if (!res.success || !res.data) {
         throw new Error(res.error ?? "Tạo người dùng thất bại");
       }
-      // Store credentials and show dialog
+      // Server đã tự động gửi email welcome (trừ khi SMTP lỗi)
       const programTitles = availablePrograms
         .filter((p) => selectedProgramIds.has(p.id))
         .map((p) => p.title)
         .filter(Boolean);
-      setNewUserCredentials({ email, password, displayName, assignedProgramTitles: programTitles });
-      setWelcomeSent(false);
-      setWelcomeError(null);
+      setNewUserCredentials({
+        email,
+        password,
+        displayName,
+        assignedProgramTitles: programTitles,
+        autoEmailSent: res.data.emailSent ?? false,
+        autoEmailError: res.data.emailError ?? null,
+      });
+      setWelcomeSent(res.data.emailSent ?? false);
+      setWelcomeError(res.data.emailSent ? null : (res.data.emailError ?? null));
       setShowCredentialDialog(true);
       closeCreate();
       void refetch();
@@ -1128,6 +1139,8 @@ interface CredentialDialogProps {
     password: string;
     displayName: string;
     assignedProgramTitles?: string[];
+    autoEmailSent?: boolean;
+    autoEmailError?: string | null;
   } | null;
 }
 
@@ -1144,11 +1157,12 @@ function CredentialDialog({ open, onOpenChange, credentials }: CredentialDialogP
   // Reset trạng thái khi đóng/mở dialog với credentials mới
   useEffect(() => {
     if (open) {
-      setWelcomeSent(false);
-      setWelcomeError(null);
+      // Khởi tạo từ prop autoEmailSent (server đã gửi trước đó)
+      setWelcomeSent(credentials?.autoEmailSent ?? false);
+      setWelcomeError(credentials?.autoEmailSent ? null : (credentials?.autoEmailError ?? null));
       setCopiedField(null);
     }
-  }, [open, credentials?.email]);
+  }, [open, credentials?.email, credentials?.autoEmailSent, credentials?.autoEmailError]);
 
   const handleSendWelcome = async () => {
     if (!credentials) return;
@@ -1223,7 +1237,7 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-950">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-green-600">
             <Check className="h-5 w-5" />
@@ -1260,13 +1274,13 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "link" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border break-all">
+              <p className="text-sm font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere">
                 {APP_LOGIN_URL}
               </p>
             </div>
 
             {/* Email */}
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Email:</span>
                 <Button
@@ -1283,13 +1297,13 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "email" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border">
+              <p className="text-sm font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere">
                 {credentials.email}
               </p>
             </div>
 
             {/* Password */}
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Mật khẩu:</span>
                 <Button
@@ -1306,7 +1320,7 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
                   {copiedField === "password" ? "Đã copy" : "Copy"}
                 </Button>
               </div>
-              <p className="text-sm font-mono bg-background p-2 rounded border">
+              <p className="text-sm font-mono bg-background p-2 rounded border break-all overflow-wrap-anywhere">
                 {credentials.password}
               </p>
             </div>
@@ -1320,28 +1334,25 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
         </div>
 
         <DialogFooter className="gap-2 flex-col sm:flex-row">
-          <Button
-            variant="default"
-            onClick={handleSendWelcome}
-            disabled={welcomeSending || welcomeSent}
-          >
-            {welcomeSending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Đang gửi...
-              </>
-            ) : welcomeSent ? (
-              <>
-                <Check className="mr-2 h-4 w-4 text-green-500" />
-                Đã gửi email
-              </>
-            ) : (
-              <>
-                <Mail className="mr-2 h-4 w-4" />
-                Gửi email cho nhân viên
-              </>
-            )}
-          </Button>
+          {!welcomeSent && (
+            <Button
+              variant="default"
+              onClick={handleSendWelcome}
+              disabled={welcomeSending}
+            >
+              {welcomeSending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Đang gửi...
+                </>
+              ) : (
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Gửi lại email cho nhân viên
+                </>
+              )}
+            </Button>
+          )}
           <Button variant="outline" onClick={handleCopyAll}>
             {copiedField === "all" ? (
               <Check className="mr-2 h-4 w-4 text-green-500" />
@@ -1358,9 +1369,12 @@ Vui lòng đăng nhập và đổi mật khẩu ngay sau khi nhận được th�
           </Alert>
         )}
         {welcomeSent && (
-          <p className="text-xs text-green-600 text-center -mt-1">
-            ✅ Đã gửi email thông tin đăng nhập đến {credentials.email}.
-          </p>
+          <Alert className="mt-2 border-green-500/50 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">
+            <Check className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              ✅ Đã gửi email thông tin đăng nhập đến <strong>{credentials.email}</strong>.
+            </AlertDescription>
+          </Alert>
         )}
       </DialogContent>
     </Dialog>
