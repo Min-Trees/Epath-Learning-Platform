@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, ok, bad } from "@/lib/api-auth";
+import { invalidateUser } from "@/lib/cache/program-cache";
 import type { TestQuestion, QuestionGradingResult } from "@/types/training";
 
 /**
@@ -230,6 +231,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
       attemptCount,
       hasEssayPendingReview: hasPendingReview,
     };
+
+    // Submit test thay đổi testScore / lessonStatus → cache list "chương trình của tôi" đã stale.
+    invalidateUser(me.uid);
 
     if (body.includeDetails) {
       return ok({

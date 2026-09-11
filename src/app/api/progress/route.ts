@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { invalidateUser } from "@/lib/cache/program-cache";
 
 /**
  * GET /api/progress?programId=&userId=
@@ -138,6 +139,10 @@ export async function POST(req: NextRequest) {
       }
       await progRef.set({ status: "completed", completedAt: new Date() }, { merge: true });
     }
+
+    // Progress thay đổi → cache list "chương trình của tôi" của user đã stale
+    // (vì có hiển thị % hoàn thành và trạng thái in_progress/completed).
+    invalidateUser(me.uid);
 
     return ok();
   } catch (e) {

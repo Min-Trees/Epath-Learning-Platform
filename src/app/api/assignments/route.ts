@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { invalidateUser, invalidateUsers } from "@/lib/cache/program-cache";
 
 /**
  * GET /api/assignments?userId=&programId=&status=
@@ -153,6 +154,10 @@ export async function POST(req: NextRequest) {
       created.push(uid);
     }
     if (created.length > 0) await batch.commit();
+
+    // Sau khi gán → list "chương trình của tôi" của user được gán đã stale.
+    invalidateUsers(created);
+
     return ok({ created, skipped });
   } catch (e) {
     console.error("[api/assignments][POST] error:", e);

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { invalidateAll, invalidateUsers } from "@/lib/cache/program-cache";
 
 /**
  * GET /api/programs/:programId
@@ -79,6 +80,18 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ programId: 
     if (body.groupId !== undefined) update.groupId = body.groupId;
 
     await ref.update(update);
+
+    // Khi title/description/groupId/status thay đổi → cache list của user được
+    // gán program này đã stale. Đơn giản nhất là clear all (ít tốn).
+    if (
+      update.title !== undefined ||
+      update.description !== undefined ||
+      update.status !== undefined ||
+      update.groupId !== undefined
+    ) {
+      invalidateAll();
+    }
+
     return ok();
   } catch (e) {
     console.error("[api/programs/:id][PUT] error:", e);
@@ -110,6 +123,20 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programI
       return bad("Forbidden - bạn không có quyền xóa chương trình này", 403);
     }
 
+    // Thu thập userId đã được gán program này để clear cache trước khi xóa.
+    let affectedUserIds: string[] = [];
+    try {
+      const assignSnap = await adminDb
+        .collection("assignments")
+        .where("programId", "==", programId)
+        .get();
+      affectedUserIds = assignSnap.docs
+        .map((d) => (d.data() as { userId?: string }).userId ?? "")
+        .filter(Boolean);
+    } catch {
+      // ignore, dùng invalidateAll bên dưới
+    }
+
     // Xóa lessons + tests của lessons
     const lessonsSnap = await ref.collection("lessons").get();
     for (const lessonDoc of lessonsSnap.docs) {
@@ -137,6 +164,14 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programI
     }
 
     await ref.delete();
+
+    // Clear cache của các user đã được gán program này. Nếu lỗi thì clear all.
+    if (affectedUserIds.length > 0) {
+      invalidateUsers(affectedUserIds);
+    } else {
+      invalidateAll();
+    }
+
     return ok();
   } catch (e) {
     console.error("[api/programs/:id][DELETE] error:", e);

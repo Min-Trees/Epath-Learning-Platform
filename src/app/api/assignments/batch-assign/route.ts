@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { invalidateUser, invalidateUsers } from "@/lib/cache/program-cache";
 
 /**
  * POST /api/assignments/batch
@@ -89,6 +90,11 @@ export async function POST(req: NextRequest) {
         status: "not_started",
       });
       created.push(programId);
+    }
+
+    // Clear cache của user được gán nếu có chương trình mới thật sự được tạo.
+    if (created.length > 0) {
+      invalidateUser(body.userId);
     }
 
     return ok({ created, skipped });

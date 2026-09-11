@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 import type { AuthUser } from "@/lib/api-auth";
+import { invalidateAll, invalidateUsers } from "@/lib/cache/program-cache";
 import type { LessonContentType } from "@/types/training";
 
 function canManageLessons(user: AuthUser | null): boolean {
@@ -164,12 +165,36 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programI
       .collection("progress")
       .where("programId", "==", programId)
       .get();
+    const affectedUsers = new Set<string>();
     for (const p of progressSnap.docs) {
       const lp = await p.ref.collection("lessons").doc(lessonId).get();
       if (lp.exists) await lp.ref.delete();
+      const uid = (p.data() as { userId?: string }).userId;
+      if (uid) affectedUsers.add(uid);
     }
 
     await ref.delete();
+
+    // Xóa lesson → lessonCount và progress của các user được gán thay đổi.
+    // Lấy thêm các user đã được gán program (kể cả chưa có progress).
+    try {
+      const assignSnap = await adminDb
+        .collection("assignments")
+        .where("programId", "==", programId)
+        .get();
+      for (const a of assignSnap.docs) {
+        const uid = (a.data() as { userId?: string }).userId;
+        if (uid) affectedUsers.add(uid);
+      }
+    } catch {
+      // ignore
+    }
+    if (affectedUsers.size > 0) {
+      invalidateUsers(affectedUsers);
+    } else {
+      invalidateAll();
+    }
+
     return ok();
   } catch (e) {
     console.error("[api/lessons/:id][DELETE] error:", e);

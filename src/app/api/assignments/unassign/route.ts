@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { invalidateUser } from "@/lib/cache/program-cache";
 
 /**
  * DELETE /api/assignments?userId=&programId=
@@ -48,6 +49,10 @@ export async function DELETE(req: NextRequest) {
       for (const l of lessonsSnap.docs) await l.ref.delete();
       await progRef.delete();
     }
+
+    // Clear cache của user bị hủy gán.
+    invalidateUser(userId);
+
     return ok();
   } catch (e) {
     console.error("[api/assignments][DELETE] error:", e);

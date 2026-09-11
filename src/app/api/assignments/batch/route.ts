@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { invalidateUser, invalidateUsers } from "@/lib/cache/program-cache";
 
 /**
  * DELETE /api/assignments/batch
@@ -42,6 +43,7 @@ export async function DELETE(req: NextRequest) {
 
     const success: string[] = [];
     const failed: string[] = [];
+    const affectedUsers = new Set<string>();
 
     for (const { userId, programId } of body.items) {
       if (!userId || !programId) continue;
@@ -69,10 +71,14 @@ export async function DELETE(req: NextRequest) {
         }
 
         success.push(`${userId}_${programId}`);
+        affectedUsers.add(userId);
       } catch {
         failed.push(`${userId}_${programId}`);
       }
     }
+
+    // Clear cache của các user bị ảnh hưởng.
+    invalidateUsers(affectedUsers);
 
     return ok({ success, failed });
   } catch (e) {

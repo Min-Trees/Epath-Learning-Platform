@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 import type { AuthUser } from "@/lib/api-auth";
+import { invalidateAll } from "@/lib/cache/program-cache";
 import type { LessonContentType } from "@/types/training";
 
 function canManageLessons(user: AuthUser | null): boolean {
@@ -136,6 +137,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
       data.textContent = tc;
     }
     const ref = await programRef.collection("lessons").add(data);
+
+    // Thêm lesson → lessonCount và progress percent có thể thay đổi.
+    invalidateAll();
+
     return ok({ lessonId: ref.id });
   } catch (e) {
     console.error("[api/programs/:id/lessons][POST] error:", e);

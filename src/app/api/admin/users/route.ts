@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, bad, ok } from "@/lib/api-auth";
 import { sendEmail } from "@/lib/email";
 import { buildWelcomeEmail, APP_NAME } from "@/lib/email-template";
+import { invalidateUser } from "@/lib/cache/program-cache";
 import type { UserRole } from "@/types";
 
 /**
@@ -149,6 +150,10 @@ export async function POST(req: NextRequest) {
             });
         })
       );
+
+      // User mới được tạo chưa có cache, nhưng clear để chắc chắn
+      // (vd: trong trường hợp reuse uid hoặc cùng session test).
+      invalidateUser(uid);
     }
   } catch (e) {
     // Rollback Auth nếu Firestore lỗi

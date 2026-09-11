@@ -1,32 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import {
+  getCachedMePrograms,
+  setCachedMePrograms,
+} from "@/lib/cache/program-cache";
 
-/**
- * GET /api/me/programs
- *  - Employee: lấy danh sách chương trình được gán + tóm tắt tiến độ
- *  - Admin: lấy tất cả (kèm role hint)
- * 
- * OPTIMIZATION v2:
- * - Batch fetch programs, lessons, và progress sử dụng Promise.all
- * - Sử dụng Firestore batch operations thay vì sequential reads
- * - Cache response với stale-while-revalidate pattern
- */
-
-// Cache for programs metadata (shared across users)
-const programsCache = new Map<string, { data: unknown; expiry: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Cache đã được chuyển sang src/lib/cache/program-cache.ts.
+// Key theo uid thật của user, TTL 30s (an toàn nếu invalidation bị miss).
+// Các route khác (publish/unpublish, assignment create/delete, progress) sẽ
+// gọi invalidateAll()/invalidateUser() để clear cache ngay khi có thay đổi.
 
 export async function GET(req: NextRequest) {
-  const cacheKey = `me_programs_${req.headers.get("x-user-id") || "anon"}`;
-  const cached = programsCache.get(cacheKey);
-  if (cached && cached.expiry > Date.now()) {
-    return ok(cached.data);
-  }
-
   try {
+    // Xác thực TRƯỚC khi check cache để đảm bảo cache key là uid thật của user.
+    // Trước đây cache key dựa vào header `x-user-id` không tồn tại → mọi user
+    // share chung 1 key → 1 user thấy data của user khác.
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
+
+    const cached = getCachedMePrograms(me.uid);
+    if (cached) {
+      return ok(cached);
+    }
 
     // 1. Lấy assignments
     let assignmentsSnap;
@@ -231,9 +227,9 @@ export async function GET(req: NextRequest) {
     });
 
     const result = { items, groups };
-    
-    // Cache the result
-    programsCache.set(cacheKey, { data: result, expiry: Date.now() + CACHE_TTL });
+
+    // Cache the result (key theo uid thật của user, TTL 30s)
+    setCachedMePrograms(me.uid, result);
 
     return ok(result);
   } catch (e) {

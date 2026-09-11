@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { invalidateAll, invalidateUser, invalidateUsers } from "@/lib/cache/program-cache";
 
 /**
  * POST /api/programs/:programId/publish
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
       publishedAt: new Date(),
       updatedAt: new Date(),
     });
+
+    // Publish ảnh hưởng đến mọi user có thể được gán chương trình này,
+    // nên xóa cache của tất cả user (an toàn hơn).
+    invalidateAll();
+
     return ok();
   } catch (e) {
     console.error("[api/programs/:id/publish][POST] error:", e);
@@ -71,6 +77,20 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programI
       status: "draft",
       updatedAt: new Date(),
     });
+
+    // Lấy danh sách user đã được gán program này để clear cache đúng user.
+    // Tránh trường hợp employee vẫn thấy program đã bị unpublish trong 30s.
+    try {
+      const assignSnap = await adminDb
+        .collection("assignments")
+        .where("programId", "==", programId)
+        .get();
+      invalidateUsers(assignSnap.docs.map((d) => (d.data() as { userId?: string }).userId ?? "").filter(Boolean));
+    } catch {
+      // Fallback: clear all nếu không query được
+      invalidateAll();
+    }
+
     return ok();
   } catch (e) {
     console.error("[api/programs/:id/publish][DELETE] error:", e);
