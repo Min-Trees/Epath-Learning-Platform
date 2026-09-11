@@ -208,6 +208,35 @@ export interface ProgramReportSummary {
   atRiskUsers: { userId: string; displayName?: string; email: string; status: AssignmentStatus; percent: number }[];
 }
 
+/**
+ * Tổng quan tiến độ của một nhân viên trong team (dùng cho trang Team của manager).
+ */
+export interface TeamMemberProgress {
+  userId: string;
+  displayName?: string;
+  email: string;
+  department?: string;
+  totalAssigned: number;
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  overallPercent: number; // % hoàn thành trung bình các chương trình
+  averageTestScore: number; // % điểm test trung bình các chương trình
+  lastActivityAt?: Date | null;
+}
+
+export interface TeamReportSummary {
+  managerId: string;
+  totalEmployees: number;
+  totalAssigned: number; // tổng số chương trình đã gán cho cả team
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  completionRate: number; // % chương trình hoàn thành / tổng
+  averageTestScore: number; // điểm test trung bình cả team
+  members: TeamMemberProgress[];
+}
+
 export interface UserReportSummary {
   userId: string;
   displayName?: string;

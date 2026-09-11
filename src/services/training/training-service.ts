@@ -16,6 +16,7 @@ import type {
   PresignDownloadResponse,
   ProgramReportSummary,
   UserReportSummary,
+  TeamReportSummary,
   Ticket,
   CreateTicketRequest,
   TicketListResponse,
@@ -238,6 +239,15 @@ export const reportService = {
     ),
   userProgress: (userId: string) =>
     apiGet<UserReportSummary>(`/api/reports/users/${userId}/progress`),
+  teamProgress: (params?: { department?: string; scope?: "managed" | "all" }) => {
+    const sp = new URLSearchParams();
+    if (params?.department) sp.set("department", params.department);
+    if (params?.scope) sp.set("scope", params.scope);
+    const qs = sp.toString();
+    return apiGet<TeamReportSummary>(
+      `/api/reports/team/progress${qs ? `?${qs}` : ""}`
+    );
+  },
 };
 
 // ─── Tickets (Báo cáo lỗi) ───────────────────────────────────
