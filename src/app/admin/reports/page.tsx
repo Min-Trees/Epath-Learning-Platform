@@ -12,6 +12,7 @@ import {
   ChevronRight,
   UserCheck,
   Mail,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,10 +70,13 @@ function AdminReportsPageInner() {
     error: teamError,
     isLoading: isLoadingTeam,
     isFetching: isFetchingTeam,
+    refetch: refetchTeam,
   } = useQuery<TeamReportSummary | null>({
     queryKey: ["report", "team"],
     enabled: isManagerOrAdmin || isHr,
-    staleTime: 30 * 1000,
+    staleTime: 0, // luôn lấy dữ liệu mới khi mở trang
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: "always",
     placeholderData: (prev) => prev,
     queryFn: async () => {
       const res = await reportService.teamProgress();
@@ -83,16 +87,19 @@ function AdminReportsPageInner() {
 
   /* ─── Programs list (cho tab program, admin/manager) ─────── */
   const { data: programsData } = useQuery({
-    queryKey: ["programs", "list", "published"],
+    queryKey: ["programs", "list", "all"],
     enabled: isAdmin,
     staleTime: 60 * 1000,
     queryFn: async () => {
       const res = await programService.list();
       if (!res.success) throw new Error(res.error ?? "Lỗi tải programs");
-      const items = ((res.data as { items: Program[] }).items ?? []).filter(
-        (p) => p.status === "published"
-      );
-      return items;
+      // Admin: hiển thị TẤT CẢ chương trình (kể cả draft) để báo cáo đầy đủ.
+      const items = (res.data as { items: Program[] }).items ?? [];
+      return items.sort((a, b) => {
+        const aT = (a.title ?? "").toString();
+        const bT = (b.title ?? "").toString();
+        return aT.localeCompare(bT, "vi");
+      });
     },
   });
   const programs = programsData ?? [];
@@ -106,11 +113,14 @@ function AdminReportsPageInner() {
     error: programError,
     isLoading: isLoadingProgram,
     isFetching: isFetchingProgram,
+    refetch: refetchProgram,
   } = useQuery<ProgramReportSummary | null>({
     queryKey: ["report", "program", effectiveProgramId],
     enabled: isAdmin && tab === "program" && Boolean(effectiveProgramId),
     placeholderData: (prev) => prev,
-    staleTime: 30 * 1000,
+    staleTime: 0, // luôn lấy dữ liệu mới khi mở trang
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: "always",
     queryFn: async () => {
       if (!effectiveProgramId) return null;
       const res = await reportService.programProgress(effectiveProgramId);
@@ -186,6 +196,9 @@ function AdminReportsPageInner() {
           isFetching={isFetchingTeam}
           isManager={isManager}
           isAdmin={isAdmin}
+          onRefresh={() => {
+            void refetchTeam();
+          }}
         />
       ) : (
         <ProgramReportView
@@ -196,6 +209,9 @@ function AdminReportsPageInner() {
           error={programError}
           isLoading={isLoadingProgram}
           isFetching={isFetchingProgram}
+          onRefresh={() => {
+            void refetchProgram();
+          }}
         />
       )}
     </PageContainer>
@@ -213,6 +229,7 @@ function TeamReportView({
   isFetching,
   isManager,
   isAdmin,
+  onRefresh,
 }: {
   summary: TeamReportSummary | null | undefined;
   error: unknown;
@@ -220,6 +237,7 @@ function TeamReportView({
   isFetching: boolean;
   isManager: boolean;
   isAdmin: boolean;
+  onRefresh: () => void;
 }) {
   if (error) {
     return (
@@ -251,7 +269,7 @@ function TeamReportView({
 
   return (
     <div className="grid gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">
           {isManager
             ? "Tiến độ nhân viên thuộc quyền"
@@ -259,9 +277,17 @@ function TeamReportView({
               ? "Tổng quan nhân viên (toàn hệ thống)"
               : "Tổng quan nhân viên"}
         </h2>
-        {isFetching && (
-          <span className="text-xs text-muted-foreground">Đang cập nhật...</span>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={isFetching}
+        >
+          <RefreshCw
+            className={"mr-1 h-4 w-4 " + (isFetching ? "animate-spin" : "")}
+          />
+          {isFetching ? "Đang cập nhật..." : "Làm mới"}
+        </Button>
       </div>
 
       {/* Top stats */}
@@ -438,6 +464,7 @@ function ProgramReportView({
   error,
   isLoading,
   isFetching,
+  onRefresh,
 }: {
   programs: Program[];
   selectedProgramId: string;
@@ -446,6 +473,7 @@ function ProgramReportView({
   error: unknown;
   isLoading: boolean;
   isFetching: boolean;
+  onRefresh: () => void;
 }) {
   return (
     <>
@@ -468,12 +496,21 @@ function ProgramReportView({
           {programs.map((p) => (
             <option key={p.id} value={p.id}>
               {p.title}
+              {p.status === "draft" ? " (bản nháp)" : ""}
             </option>
           ))}
         </select>
-        {isFetching && (
-          <span className="text-xs text-muted-foreground">Đang cập nhật...</span>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={isFetching || !selectedProgramId}
+        >
+          <RefreshCw
+            className={"mr-1 h-4 w-4 " + (isFetching ? "animate-spin" : "")}
+          />
+          {isFetching ? "Đang cập nhật..." : "Làm mới"}
+        </Button>
       </div>
 
       {!selectedProgramId ? (

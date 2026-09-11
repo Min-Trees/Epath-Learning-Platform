@@ -222,7 +222,8 @@ export interface TeamMemberProgress {
   notStarted: number;
   overallPercent: number; // % hoàn thành trung bình các chương trình
   averageTestScore: number; // % điểm test trung bình các chương trình
-  lastActivityAt?: Date | null;
+  /** ISO string của lần hoạt động gần nhất (lesson/assignment/progress). */
+  lastActivityAt?: string | null;
 }
 
 export interface TeamReportSummary {

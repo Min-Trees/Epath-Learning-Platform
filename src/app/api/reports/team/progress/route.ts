@@ -10,6 +10,41 @@ import {
 import type { TeamMemberProgress, TeamReportSummary } from "@/types/training";
 
 /**
+ * Chuẩn hóa nhiều kiểu dữ liệu ngày về Date (Firestore Timestamp có .toDate(),
+ * ISO string, number, Date object).
+ */
+function normalizeDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "object") {
+    const toDate = (value as { toDate?: () => Date }).toDate;
+    if (typeof toDate === "function") {
+      try {
+        const d = toDate.call(value);
+        return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+      } catch {
+        return null;
+      }
+    }
+    const seconds = (value as { _seconds?: number; seconds?: number })._seconds
+      ?? (value as { seconds?: number }).seconds;
+    if (typeof seconds === "number") return new Date(seconds * 1000);
+    return null;
+  }
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === "number") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/**
  * GET /api/reports/team/progress
  *  - Manager: tổng quan tiến độ của các nhân viên thuộc quyền (managerId === me.uid)
  *  - Admin: mặc định lấy tất cả employee trong hệ thống
@@ -122,7 +157,7 @@ export async function GET(req: NextRequest) {
         else if (aData.status === "in_progress") userInProgress++;
         else userNotStarted++;
 
-        // Tính % completed của chương trình
+        // Tính % completed của chương trình (theo số lesson đã hoàn thành)
         const lpRef = adminDb
           .collection("progress")
           .doc(`${userId}_${aData.programId}`);
@@ -136,18 +171,39 @@ export async function GET(req: NextRequest) {
         ]);
         const totalLessons = lessonsSnap.size;
         const lpSnap = await lpRef.collection("lessons").get();
-        const doneLessons = lpSnap.docs.filter(
-          (d) =>
-            (d.data() as { lessonStatus?: string }).lessonStatus === "completed"
-        ).length;
-        if (totalLessons > 0) {
-          percents.push(Math.round((doneLessons / totalLessons) * 100));
+
+        // Đếm lesson đã completed — KHÔNG tính những lesson chưa tồn tại trong progress
+        // (chỉ lesson mà user thực sự đã tương tác mới có record)
+        const doneLessonIds = new Set(
+          lpSnap.docs
+            .filter(
+              (d) =>
+                (d.data() as { lessonStatus?: string }).lessonStatus ===
+                "completed"
+            )
+            .map((d) => d.id)
+        );
+        // Đảm bảo chỉ tính những lesson thực sự thuộc chương trình
+        const validLessonIds = new Set(lessonsSnap.docs.map((l) => l.id));
+        let doneLessons = 0;
+        for (const id of doneLessonIds) {
+          if (validLessonIds.has(id)) doneLessons++;
         }
 
-        // Điểm test trung bình + last activity
+        // Mọi assignment đều phải được tính vào % tổng (kể cả chưa có lesson / chưa bắt đầu)
+        const programPercent =
+          totalLessons > 0
+            ? Math.round((doneLessons / totalLessons) * 100)
+            : aData.status === "completed"
+              ? 100
+              : 0;
+        percents.push(programPercent);
+
+        // Điểm test trung bình + last activity (chỉ tính test result của lesson thuộc chương trình)
         let progScoreSum = 0;
         let progScoreCount = 0;
         for (const lp of lpSnap.docs) {
+          if (!validLessonIds.has(lp.id)) continue;
           const d = lp.data() as {
             lessonStatus?: string;
             testResult?: { score?: number };
@@ -158,12 +214,7 @@ export async function GET(req: NextRequest) {
             progScoreCount++;
           }
           const ts = d.updatedAt;
-          const tsDate =
-            ts && typeof (ts as { toDate?: () => Date }).toDate === "function"
-              ? (ts as { toDate: () => Date }).toDate()
-              : ts instanceof Date
-                ? ts
-                : null;
+          const tsDate = normalizeDate(ts);
           if (tsDate && (!lastActivityAt || tsDate > lastActivityAt)) {
             lastActivityAt = tsDate;
           }
@@ -172,20 +223,33 @@ export async function GET(req: NextRequest) {
           userScores.push(Math.round(progScoreSum / progScoreCount));
         }
 
-        // updatedAt của progress doc
+        // updatedAt của progress doc (cập nhật gần nhất của chương trình)
         const progData = lpProgSnap.data() as
           | { updatedAt?: { toDate?: () => Date } | Date | null }
           | undefined;
-        const progTs = progData?.updatedAt;
-        const progTsDate =
-          progTs &&
-          typeof (progTs as { toDate?: () => Date }).toDate === "function"
-            ? (progTs as { toDate: () => Date }).toDate()
-            : progTs instanceof Date
-              ? progTs
-              : null;
+        const progTsDate = normalizeDate(progData?.updatedAt);
         if (progTsDate && (!lastActivityAt || progTsDate > lastActivityAt)) {
           lastActivityAt = progTsDate;
+        }
+
+        // Còn tính lastActivity từ assignment.updatedAt / startedAt / completedAt
+        const progAssignments = a as { data(): unknown };
+        const aFull = progAssignments.data() as {
+          updatedAt?: unknown;
+          startedAt?: unknown;
+          completedAt?: unknown;
+          assignedAt?: unknown;
+        };
+        for (const field of [
+          aFull.updatedAt,
+          aFull.startedAt,
+          aFull.completedAt,
+          aFull.assignedAt,
+        ]) {
+          const d = normalizeDate(field);
+          if (d && (!lastActivityAt || d > lastActivityAt)) {
+            lastActivityAt = d;
+          }
         }
       }
 
@@ -210,7 +274,8 @@ export async function GET(req: NextRequest) {
         notStarted: userNotStarted,
         overallPercent,
         averageTestScore: userAvg,
-        lastActivityAt,
+        // Trả về ISO string để JSON serialize an toàn (Date không serialize qua JSON)
+        lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
       });
 
       totalAssigned += userTotalAssigned;
