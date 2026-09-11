@@ -1,5 +1,7 @@
-const {Client} = require('ssh2');
-const conn = new Client();
+// scripts/fix-env2.cjs - Fix APP_URL + MAIL_FROM (v2)
+const { createConnection } = require('./_ssh-helper.cjs');
+
+const conn = createConnection({ readyTimeout: 20_000 });
 conn.on('ready', () => {
   const script = `bash -c '
 set -e
@@ -30,4 +32,3 @@ curl -sI http://127.0.0.1:3000/ --max-time 5 2>&1 | head -3
   });
 });
 conn.on('error', err => { console.error('SSH err:', err.message); process.exit(1); });
-conn.connect({host:'103.72.57.100', port:22, username:'root', password:'j!@tbVc8GHPMYzK', readyTimeout: 20000});

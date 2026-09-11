@@ -1,13 +1,9 @@
 // scripts/check-vps-env.mjs - Check VPS env for APP_URL
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { Client } = require('ssh2');
+const { createConnection } = require('./_ssh-helper.cjs');
 
-const HOST = '103.72.57.100';
-const USER = 'root';
-const PASS = 'j!@tbVc8GHPMYzK';
-
-const conn = new Client();
+const conn = createConnection({ readyTimeout: 15_000 });
 conn.on('ready', () => {
   conn.exec('grep -E "NEXT_PUBLIC_APP_URL|NEXT_PUBLIC_APP_NAME|MAIL_" /var/www/epath/.env.local', (err, stream) => {
     if (err) { console.error(err); conn.end(); return; }
@@ -17,4 +13,3 @@ conn.on('ready', () => {
   });
 });
 conn.on('error', e => { console.error('SSH error:', e.message); process.exit(1); });
-conn.connect({ host: HOST, port: 22, username: USER, password: PASS, readyTimeout: 15000 });

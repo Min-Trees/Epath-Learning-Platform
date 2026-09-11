@@ -1,42 +1,24 @@
 // scripts/vps-deploy.mjs - Main deploy orchestrator
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { Client } = require('ssh2');
+const { createConnection, execCommand, getVpsPassword } = require('./_ssh-helper.cjs');
 
-const HOST = '103.72.57.100';
-const USER = 'root';
-const PASS = process.env.VPS_PASSWORD || 'j!@tbVc8GHPMYzK';
+// Lấy password sớm để fail-fast nếu thiếu env var
+getVpsPassword();
 
-// Khi deploy lần đầu, repo ở /var/www/epath nhưng chưa có .git.
-// Tôi sẽ: clone vào /var/www/epath.new, rsync source vào /var/www/epath, build, reload.
-const CURRENT_DIR = '/var/www/epath';
-const NEW_DIR = '/var/www/epath.new';
 const GIT_REMOTE = 'https://github.com/Min-Trees/Epath-Learning-Platform.git';
 
-function runCmd(client, cmd, timeoutMs = 300_000) {
-  return new Promise((resolve, reject) => {
-    let stdout = '', stderr = '', timer;
-    client.exec(cmd, (err, stream) => {
-      if (err) return reject(err);
-      stream.on('close', (code) => {
-        clearTimeout(timer);
-        resolve({ code, stdout, stderr });
-      });
-      stream.on('data', d => { const s = d.toString('utf8'); stdout += s; process.stdout.write(s); });
-      stream.stderr.on('data', d => { const s = d.toString('utf8'); stderr += s; process.stderr.write(s); });
-      timer = setTimeout(() => { try { stream.close(); } catch {}; reject(new Error(`Timeout ${timeoutMs}ms: ${cmd.slice(0,80)}`)); }, timeoutMs);
-    });
-  });
-}
+const CURRENT_DIR = '/var/www/epath';
+const NEW_DIR = '/var/www/epath.new';
 
 async function sshExec(steps) {
   return new Promise((resolve, reject) => {
-    const conn = new Client();
+    const conn = createConnection();
     conn.on('ready', async () => {
       try {
         const out = [];
         for (const step of steps) {
-          const r = await runCmd(conn, step.cmd, step.timeout || 300_000);
+          const r = await execCommand(conn, step.cmd, step.timeout || 300_000);
           out.push(r);
           if (r.code !== 0 && !step.allowFail) {
             conn.end();
@@ -51,13 +33,12 @@ async function sshExec(steps) {
       }
     });
     conn.on('error', reject);
-    conn.connect({ host: HOST, port: 22, username: USER, password: PASS, readyTimeout: 30_000 });
   });
 }
 
 async function healthCheck() {
   return new Promise((resolve) => {
-    const conn = new Client();
+    const conn = createConnection({ readyTimeout: 30_000 });
     let elapsed = 0;
     let stopped = false;
     const stop = (val) => { if (!stopped) { stopped = true; try { conn.end(); } catch {}; resolve(val); } };
@@ -65,8 +46,8 @@ async function healthCheck() {
     conn.on('ready', async () => {
       const tick = async () => {
         try {
-          const r = await runCmd(conn, `curl -fsS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health 2>/dev/null; echo ""`, 10_000);
-          const r2 = await runCmd(conn, `curl -fsS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/ 2>/dev/null; echo ""`, 10_000);
+          const r = await execCommand(conn, `curl -fsS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health 2>/dev/null; echo ""`, 10_000);
+          const r2 = await execCommand(conn, `curl -fsS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/ 2>/dev/null; echo ""`, 10_000);
           const code = (r.stdout + r2.stdout).trim();
           const ok = code.includes('200') || code.includes('307');
           console.log(`  [health] elapsed=${elapsed}s code=${code}`);
@@ -83,7 +64,6 @@ async function healthCheck() {
       tick();
     });
     conn.on('error', () => stop(false));
-    conn.connect({ host: HOST, port: 22, username: USER, password: PASS, readyTimeout: 30_000 });
   });
 }
 

@@ -1,5 +1,7 @@
-const {Client} = require('ssh2');
-const conn = new Client();
+// scripts/cat-env.cjs - Print VPS .env.local
+const { createConnection } = require('./_ssh-helper.cjs');
+
+const conn = createConnection({ readyTimeout: 20_000 });
 conn.on('ready', () => {
   const script = `set -e
 cd /var/www/epath
@@ -13,4 +15,3 @@ cat .env.local
   });
 });
 conn.on('error', err => { console.error('SSH err:', err.message); process.exit(1); });
-conn.connect({host:'103.72.57.100', port:22, username:'root', password:'j!@tbVc8GHPMYzK', readyTimeout: 20000});
