@@ -90,7 +90,7 @@ export function SecureVideoPlayer({
    */
   const fetchStreamUrl = useCallback(async (): Promise<string> => {
     const now = Date.now();
-    // Reuse cached token if it has >90s left (TTL 120s)
+    // Reuse cached token nếu còn >90s hạn (TTL 4h)
     if (tokenRef.current && tokenExpiryRef.current > now + 90000) {
       return `/api/stream/${tokenRef.current}/file`;
     }
@@ -104,7 +104,7 @@ export function SecureVideoPlayer({
         };
         check();
       });
-      if (tokenRef.current) {
+      if (tokenRef.current && tokenExpiryRef.current > Date.now()) {
         return `/api/stream/${tokenRef.current}/file`;
       }
     }
@@ -177,6 +177,101 @@ export function SecureVideoPlayer({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId, lessonId]);
+
+  /**
+   * Auto-refresh token trước khi hết hạn.
+   *
+   * Mỗi Range request tới /api/stream/[token]/file đều verify lại JWT.
+   * Token TTL mặc định 4 giờ, nhưng video có thể dài hơn (user để paused,
+   * xem ở tốc độ 0.5x, hoặc chương trình training >4h).
+   *
+   * Khi token còn ~5 phút, ta chủ động:
+   *   1. Ghi nhớ currentTime
+   *   2. Lấy token mới
+   *   3. Cập nhật <video>.src sang URL mới
+   *   4. Tua lại currentTime + tiếp tục phát
+   *
+   * Browser sẽ fetch Range mới từ vị trí đó với token mới, không gây lỗi.
+   */
+  useEffect(() => {
+    if (!urlReady) return;
+
+    const REFRESH_BEFORE_MS = 5 * 60 * 1000; // refresh khi còn 5 phút
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const scheduleRefresh = () => {
+      if (cancelled) return;
+      const remaining = tokenExpiryRef.current - Date.now();
+      if (remaining <= 0) {
+        // Đã hết hạn — thử refresh ngay
+        void doRefresh();
+        return;
+      }
+      const wait = Math.max(remaining - REFRESH_BEFORE_MS, 30_000);
+      timer = setTimeout(() => {
+        void doRefresh();
+      }, wait);
+    };
+
+    const doRefresh = async () => {
+      if (cancelled) return;
+      const v = videoRef.current;
+      if (!v) {
+        scheduleRefresh();
+        return;
+      }
+      // Nếu chưa play hoặc đang pause, không cần refresh gấp —
+      // sẽ được lấy token mới khi user bấm play.
+      if (!hasPlayedOnce || v.paused) {
+        // Force refresh token trong cache để lần play sau dùng token mới
+        tokenRef.current = null;
+        tokenExpiryRef.current = 0;
+        scheduleRefresh();
+        return;
+      }
+
+      // Đang phát → lưu currentTime, lấy token mới, update src
+      const savedTime = v.currentTime;
+      const wasPlaying = !v.paused;
+      try {
+        tokenRef.current = null;
+        tokenExpiryRef.current = 0;
+        const url = await fetchStreamUrl();
+        if (cancelled) return;
+        v.src = url;
+        v.load();
+        // Đợi metadata load xong rồi tua lại vị trí cũ
+        const onLoaded = () => {
+          v.removeEventListener("loadedmetadata", onLoaded);
+          try {
+            v.currentTime = savedTime;
+            if (wasPlaying) {
+              void v.play().catch(() => {
+                /* autoplay bị chặn — user sẽ bấm play lại */
+              });
+            }
+          } catch {
+            /* ignore seek errors */
+          }
+        };
+        v.addEventListener("loadedmetadata", onLoaded);
+        setStreamUrl(url);
+      } catch (e) {
+        if (cancelled) return;
+        // Nếu refresh fail (mạng chập chờn), thử lại sau 30s
+        console.warn("[secure-video] token refresh failed:", e);
+      }
+      scheduleRefresh();
+    };
+
+    scheduleRefresh();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [urlReady, hasPlayedOnce, fetchStreamUrl]);
 
   const onTimeUpdate = useCallback(() => {
     const v = videoRef.current;

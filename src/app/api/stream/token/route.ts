@@ -9,7 +9,15 @@ interface RequestBody {
   kind?: "video" | "pdf";
 }
 
-const TTL_SECONDS = 120;
+// Token TTL: phải đủ dài để cover toàn bộ thời lượng video.
+//
+// Mỗi Range request tới /api/stream/[token]/file đều verify lại JWT
+// (xem src/app/api/stream/[token]/file/route.ts), nên nếu TTL quá ngắn,
+// browser sẽ bị 401 giữa chừng khi buffer cạn → hiện lỗi "video bị xóa".
+//
+// TTL 4 giờ phủ hầu hết video training hiện tại. Với video > 4h, client
+// (SecureVideoPlayer) sẽ tự refresh token trước khi hết hạn.
+const TTL_SECONDS = 4 * 60 * 60; // 4 giờ
 
 export async function POST(req: NextRequest) {
   try {

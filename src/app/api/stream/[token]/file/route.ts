@@ -42,6 +42,11 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     const { token } = await ctx.params;
     const session = verifyStreamSession(token);
     if (!session) {
+      // Log reason để debug khi user báo lỗi "video bị xóa"
+      const reason = token ? "expired_or_invalid" : "missing_token";
+      console.warn(
+        `[stream/file] 401 (${reason}) ip=${req.headers.get("x-forwarded-for") ?? "?"} ua=${(req.headers.get("user-agent") ?? "").slice(0, 60)}`
+      );
       return new NextResponse("Invalid or expired token", { status: 401 });
     }
 
