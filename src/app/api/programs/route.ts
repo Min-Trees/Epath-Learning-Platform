@@ -38,11 +38,19 @@ export async function GET(req: NextRequest) {
 
     const snap = await ref.get();
     console.log("[api/programs][GET] Total programs:", snap.size);
-    const items = snap.docs.map((d) => {
-      const data = d.data();
-      console.log(`[api/programs][GET] Program ${d.id}:`, data.title, "| assignedManagers:", data.assignedManagers);
-      return { id: d.id, ...(data as object) };
-    });
+    // Lọc bỏ "ghost" programs - documents không có title (thường là data
+    // rỗng/bị xóa dở). Vẫn an toàn sau khi orderBy + limit vì data rỗng
+    // không thể bị che bởi limit 200 trong thực tế.
+    const items = snap.docs
+      .map((d) => ({ id: d.id, raw: d.data() as Record<string, unknown> }))
+      .filter(({ raw }) => {
+        const title = raw.title;
+        return typeof title === "string" && title.trim().length > 0;
+      })
+      .map(({ id, raw }) => {
+        console.log(`[api/programs][GET] Program ${id}:`, raw.title, "| assignedManagers:", raw.assignedManagers);
+        return { id, ...(raw as object) };
+      });
 
     // Admin/Manager: also fetch groups
     const groups =

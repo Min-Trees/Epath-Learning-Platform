@@ -90,6 +90,7 @@ function SortableProgramCard({
   groups,
   onUpdateGroup,
   isAdmin,
+  isAdminOnly,
   onOpenManagerDialog,
 }: {
   program: Program;
@@ -97,6 +98,7 @@ function SortableProgramCard({
   groups: ProgramGroup[];
   onUpdateGroup: (programId: string, groupId: string | null) => void;
   isAdmin: boolean;
+  isAdminOnly: boolean;
   onOpenManagerDialog?: (program: Program) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -215,7 +217,7 @@ function SortableProgramCard({
                                 Gán cho nhân viên
                               </Link>
                             </DropdownMenuItem>
-                            {isAdmin && (
+                            {isAdminOnly && (
                               <DropdownMenuItem
                                 onSelect={() => {
                                   if (typeof onOpenManagerDialog === "function") {
@@ -307,6 +309,7 @@ function SortableGroupSection({
   onDeleteProgram,
   deletingId,
   isAdmin,
+  isAdminOnly,
   onUpdateGroupName,
   onOpenManagerDialog,
 }: {
@@ -319,6 +322,7 @@ function SortableGroupSection({
   onDeleteProgram: (p: Program) => void;
   deletingId: string | null;
   isAdmin: boolean;
+  isAdminOnly: boolean;
   onUpdateGroupName: (groupId: string, name: string) => void;
   onOpenManagerDialog?: (program: Program) => void;
 }) {
@@ -427,6 +431,7 @@ function SortableGroupSection({
               groups={allGroups}
               onUpdateGroup={onUpdateGroup}
               isAdmin={isAdmin}
+              isAdminOnly={isAdminOnly}
               onOpenManagerDialog={onOpenManagerDialog}
             />
           ))}
@@ -631,6 +636,7 @@ function GroupsTabContent({
 export default function AdminProgramsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "manager";
+  const isAdminOnly = user?.role === "admin";
   const canDelete = user?.role === "admin";
   const queryClient = useQueryClient();
 
@@ -1354,6 +1360,7 @@ export default function AdminProgramsPage() {
                           groups={groups}
                           onUpdateGroup={handleUpdateGroup}
                           isAdmin={isAdmin}
+                          isAdminOnly={isAdminOnly}
                           onOpenManagerDialog={openManagerDialogHandler}
                         />
                       ))}
@@ -1378,6 +1385,7 @@ export default function AdminProgramsPage() {
                   onDeleteProgram={handleDelete}
                   deletingId={deletingId}
                   isAdmin={isAdmin}
+                  isAdminOnly={isAdminOnly}
                   onUpdateGroupName={handleUpdateGroupName}
                   onOpenManagerDialog={openManagerDialogHandler}
                 />
@@ -1497,6 +1505,14 @@ export default function AdminProgramsPage() {
                                     Xem như nhân viên
                                   </Link>
                                 </DropdownMenuItem>
+                                {isAdminOnly && (
+                                  <DropdownMenuItem
+                                    onSelect={() => openManagerDialogHandler(p)}
+                                  >
+                                    <UserCog className="mr-2 h-4 w-4" />
+                                    Gán quản lý
+                                  </DropdownMenuItem>
+                                )}
                               </>
                             )}
                             {canDelete && (
