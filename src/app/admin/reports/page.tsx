@@ -87,7 +87,7 @@ function AdminReportsPageInner() {
 
   /* ─── Programs list (cho tab program, admin/manager) ─────── */
   const { data: programsData } = useQuery({
-    queryKey: ["programs", "list", "all"],
+    queryKey: ["programs", "list", user?.id ?? "anon"],
     enabled: isAdmin,
     staleTime: 60 * 1000,
     queryFn: async () => {

@@ -634,6 +634,10 @@ export default function AdminProgramsPage() {
   const canDelete = user?.role === "admin";
   const queryClient = useQueryClient();
 
+  // Cache key theo user.id để tránh rò rỉ cache giữa các user khác nhau
+  // (đặc biệt khi admin và manager dùng chung browser).
+  const PROGRAMS_LIST_KEY = ["programs", "list", user?.id ?? "anon"] as const;
+
   const [filter, setFilter] = useState<"all" | "draft" | "published">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -679,7 +683,7 @@ export default function AdminProgramsPage() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ["programs", "list", "all"],
+    queryKey: PROGRAMS_LIST_KEY,
     enabled: isAdmin,
     staleTime: 60 * 1000,
     queryFn: async () => {
@@ -800,8 +804,9 @@ export default function AdminProgramsPage() {
       return programId;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
       queryClient.invalidateQueries({ queryKey: ["assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
     },
   });
 
@@ -812,7 +817,7 @@ export default function AdminProgramsPage() {
       return res;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
       setNewGroupName("");
     },
   });
@@ -823,7 +828,8 @@ export default function AdminProgramsPage() {
       if (!res.success) throw new Error((res as { error?: string }).error);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
     },
   });
 
@@ -833,7 +839,8 @@ export default function AdminProgramsPage() {
       if (!res.success) throw new Error((res as { error?: string }).error);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
     },
   });
 
@@ -849,7 +856,8 @@ export default function AdminProgramsPage() {
       if (!res.success) throw new Error((res as { error?: string }).error);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
     },
   });
 
@@ -906,7 +914,9 @@ export default function AdminProgramsPage() {
       );
       if (res.success) {
         setOpenManagerDialog(false);
-        queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+        queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
+        queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
+        queryClient.invalidateQueries({ queryKey: ["assignments"] });
       } else {
         alert(res.error ?? "Lỗi gán quản lý");
       }
@@ -939,7 +949,7 @@ export default function AdminProgramsPage() {
           ...g,
           order: i,
         }));
-        queryClient.setQueryData(["programs", "list", "all"], (old: { items: Program[]; groups: ProgramGroup[] } | undefined) =>
+        queryClient.setQueryData(PROGRAMS_LIST_KEY, (old: { items: Program[]; groups: ProgramGroup[] } | undefined) =>
           old ? { ...old, groups: reordered } : old
         );
         setLocalGroups(reordered);
@@ -1004,7 +1014,7 @@ export default function AdminProgramsPage() {
     });
 
     // Update both React Query cache and local state so UI stays in sync
-    queryClient.setQueryData(["programs", "list", "all"], (old: { items: Program[]; groups: ProgramGroup[] } | undefined) =>
+    queryClient.setQueryData(PROGRAMS_LIST_KEY, (old: { items: Program[]; groups: ProgramGroup[] } | undefined) =>
       old ? { ...old, items: updatedPrograms } : old
     );
     setLocalPrograms(updatedPrograms);
@@ -1031,7 +1041,7 @@ export default function AdminProgramsPage() {
     setLocalPrograms(null);
     setLocalGroups(null);
     setIsEditMode(false);
-    queryClient.invalidateQueries({ queryKey: ["programs", "list", "all"] });
+    queryClient.invalidateQueries({ queryKey: ["programs", "list"] });
   };
 
   return (

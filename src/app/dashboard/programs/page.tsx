@@ -73,14 +73,17 @@ export default function EmployeeProgramsPage() {
     data: rawData,
     isLoading,
     error: rqError,
+    refetch,
   } = useQuery({
-    queryKey: ["me", "programs"],
+    queryKey: ["me", "programs", user?.id ?? "anon"],
     enabled: Boolean(user?.id),
-    // Tăng staleTime từ 30s lên 5 phút để giảm số lần gọi API
-    // Data thường không thay đổi thường xuyên, nên có thể cache lâu hơn
-    staleTime: 5 * 60 * 1000, // 5 phút
-    // gcTime: 10 phút - giữ data trong cache để navigation nhanh hơn
-    gcTime: 10 * 60 * 1000,
+    // staleTime ngắn để khi admin gán mới, lần focus tab sau sẽ tự refetch.
+    staleTime: 30 * 1000, // 30 giây
+    gcTime: 5 * 60 * 1000, // 5 phút
+    // Auto-refetch khi user quay lại tab/browser
+    refetchOnWindowFocus: true,
+    // Auto-refetch khi mount (đảm bảo data luôn fresh khi vào trang)
+    refetchOnMount: true,
     queryFn: async () => {
       const res = await myProgramsService.list();
       if (!res.success) {
@@ -109,14 +112,25 @@ export default function EmployeeProgramsPage() {
       description={`Xin chào ${user?.displayName ?? "bạn"}!`}
       breadcrumbs={[{ label: "Chương trình của tôi" }]}
       actions={
-        isAdmin ? (
-          <Button asChild variant="outline" size="sm">
-            <Link href="/admin/programs">
-              <Layers className="mr-2 h-4 w-4" />
-              Quản lý chương trình
-            </Link>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+          >
+            <Loader2 className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Làm mới
           </Button>
-        ) : null
+          {isAdmin ? (
+            <Button asChild variant="default" size="sm">
+              <Link href="/admin/programs">
+                <Layers className="mr-2 h-4 w-4" />
+                Quản lý chương trình
+              </Link>
+            </Button>
+          ) : null}
+        </div>
       }
     >
       {error && (

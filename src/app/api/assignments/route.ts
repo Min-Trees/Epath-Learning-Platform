@@ -98,11 +98,15 @@ export async function POST(req: NextRequest) {
       .doc(body.programId)
       .get();
     if (!progSnap.exists) return bad("Program not found", 404);
-    const progData = progSnap.data() as { status?: string; managerId?: string };
+    const progData = progSnap.data() as {
+      status?: string;
+      assignedManagers?: string[];
+    };
 
-    // Manager: chỉ gán được program của họ
+    // Manager: chỉ gán được program mà họ được phân công quản lý
     if (!isAdmin(me)) {
-      if (progData.managerId !== me.uid) {
+      const assigned = progData.assignedManagers ?? [];
+      if (!assigned.includes(me.uid)) {
         return bad("Forbidden - bạn không có quyền gán chương trình này", 403);
       }
     }

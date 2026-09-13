@@ -65,6 +65,34 @@ export default function DashboardPage() {
     void fetchData();
   }, [user]);
 
+  // Refetch khi user quay lại tab/browser (đảm bảo data fresh sau khi admin gán)
+  useEffect(() => {
+    if (!user) return;
+    const onFocus = () => {
+      void (async () => {
+        try {
+          setIsLoading(true);
+          const res = await myProgramsService.list();
+          if (res.success && res.data) {
+            const items = ((res.data as { items: ProgramItem[] }).items ?? [])
+              .filter((i) => i.program !== null);
+            setAssignedPrograms(items);
+          }
+        } catch {
+          // ignore
+        } finally {
+          setIsLoading(false);
+        }
+      })();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [user]);
+
   const inProgress = assignedPrograms.filter(
     (p) => p.status === "in_progress" || p.status === "not_started"
   );

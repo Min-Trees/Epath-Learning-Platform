@@ -25,12 +25,19 @@ export async function DELETE(req: NextRequest) {
         adminDb.collection("users").doc(userId).get(),
         adminDb.collection("programs").doc(programId).get(),
       ]);
-      const userData = userDoc.exists ? (userDoc.data() as { managerId?: string }) : null;
-      const progData = progDoc.exists ? (progDoc.data() as { managerId?: string }) : null;
+      const userData = userDoc.exists
+        ? (userDoc.data() as { managerId?: string })
+        : null;
+      const progData = progDoc.exists
+        ? (progDoc.data() as { assignedManagers?: string[] })
+        : null;
       if (!userData || userData.managerId !== me.uid) {
         return bad("Forbidden - bạn không có quyền hủy gán của nhân viên này", 403);
       }
-      if (!progData || progData.managerId !== me.uid) {
+      if (
+        !progData ||
+        !(progData.assignedManagers ?? []).includes(me.uid)
+      ) {
         return bad("Forbidden - bạn không có quyền hủy gán chương trình này", 403);
       }
     }

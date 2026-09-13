@@ -1,0 +1,91 @@
+﻿   Γû▓ Next.js 15.5.20
+   - Local:        http://localhost:3001
+   - Network:      http://172.20.10.2:3001
+   - Environments: .env.local
+   - Experiments (use with caution):
+     ┬╖ serverActions
+
+ Γ£ô Starting...
+ Γ£ô Ready in 11.5s
+ Γùï Compiling / ...
+ Γ£ô Compiled / in 21.7s (1154 modules)
+ GET / 200 in 409ms
+ Γ£ô Compiled in 2.2s (359 modules)
+ GET / 307 in 342ms
+ Γùï Compiling /login ...
+ Γ£ô Compiled /api/programs in 5.6s (1281 modules)
+ GET /api/programs 401 in 21882ms
+ GET / 200 in 19559ms
+ GET / 307 in 129ms
+ GET /login 200 in 126ms
+ GET / 307 in 161ms
+ GET /login 200 in 167ms
+ GET /api/programs 401 in 46ms
+ Γùï Compiling /admin/assignments ...
+ Γ£ô Compiled /admin/assignments in 2.3s (1511 modules)
+ GET /admin/assignments 200 in 2990ms
+ GET /admin/assignments 200 in 101ms
+ Γ£ô Compiled in 944ms (1388 modules)
+ GET /login 200 in 263ms
+ Γ£ô Compiled in 426ms (517 modules)
+ GET /login 200 in 139ms
+ Γ£ô Compiled in 392ms (517 modules)
+ GET /login 200 in 75ms
+ Γ£ô Compiled in 367ms (517 modules)
+ GET /login 200 in 76ms
+ Γ£ô Compiled in 462ms (517 modules)
+ GET /login 200 in 71ms
+ Γ£ô Compiled in 336ms (517 modules)
+ GET /login 200 in 108ms
+ Γ£ô Compiled in 338ms (517 modules)
+ GET /login 200 in 112ms
+ Γ£ô Compiled in 391ms (517 modules)
+ GET /login 200 in 70ms
+ Γ£ô Compiled in 358ms (517 modules)
+ GET /login 200 in 105ms
+ Γ£ô Compiled in 781ms (517 modules)
+ GET /login 200 in 93ms
+ Γ£ô Compiled in 709ms (517 modules)
+ Γùï Compiling /_not-found ...
+ Γ£ô Compiled /_not-found in 1229ms (1379 modules)
+ GET /login 404 in 1733ms
+ GET /login 200 in 1422ms
+ Γ£ô Compiled in 692ms (521 modules)
+node :  ΓÜá Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+At C:\Users\npmin\AppData\Local\Temp\ps-script-a7623167-c23a-4a90-ac2e-d06877fa29fb.ps1:86 char:41
++ ... mTraining"; node ./node_modules/next/dist/bin/next dev --port 3001 2> ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( ΓÜá Fast Refre...-refresh-reload:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ GET /login 200 in 92ms
+ GET /login 404 in 226ms
+ GET /login 404 in 311ms
+ Γ£ô Compiled in 664ms (517 modules)
+ ΓÜá Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ΓÜá Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ Γùï Compiling /_not-found ...
+ Γ£ô Compiled /_not-found in 763ms (1379 modules)
+ GET /login 404 in 1539ms
+ GET /login 404 in 1735ms
+ Γùï Compiling /_error ...
+ ΓÜá Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ Γ£ô Compiled /_error in 3.1s (1727 modules)
+ GET /login 200 in 1642ms
+ GET /login 404 in 4041ms
+ Γ£ô Compiled in 353ms (674 modules)
+ Γ£ô Compiled in 2.4s (670 modules)
+ Γ£ô Compiled in 716ms (670 modules)
+ Γ£ô Compiled in 977ms (670 modules)
+ Γ£ô Compiled in 323ms (670 modules)
+ Γ£ô Compiled in 374ms (670 modules)
+ Γ£ô Compiled in 404ms (670 modules)
+ Γ£ô Compiled in 576ms (670 modules)
+ Γ£ô Compiled in 415ms (670 modules)
+ Γ£ô Compiled in 376ms (670 modules)
+ Γ£ô Compiled in 380ms (670 modules)
+ Γ£ô Compiled in 448ms (670 modules)
+ Γ£ô Compiled in 383ms (670 modules)
+ Γ£ô Compiled in 368ms (670 modules)
+ Γ£ô Compiled in 366ms (670 modules)
+ Γ£ô Compiled in 450ms (670 modules)

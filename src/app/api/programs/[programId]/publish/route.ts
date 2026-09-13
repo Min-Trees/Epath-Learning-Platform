@@ -20,9 +20,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
     const snap = await ref.get();
     if (!snap.exists) return bad("Program not found", 404);
 
-    // Manager: chỉ publish program của họ
-    const progData = snap.data() as { managerId?: string };
-    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    // Manager: chỉ publish program được gán cho họ (qua assignedManagers)
+    const progData = snap.data() as {
+      status?: string;
+      assignedManagers?: string[];
+    };
+    const isProgramOwner =
+      me.role === "manager" &&
+      (progData.assignedManagers ?? []).includes(me.uid);
     if (!isAdmin(me) && !isProgramOwner) {
       return bad("Forbidden - bạn không có quyền publish chương trình này", 403);
     }
@@ -38,11 +43,48 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ programId:
       updatedAt: new Date(),
     });
 
+    // === Auto-sync assignments cho managers trong assignedManagers ===
+    // Khi chuyển từ draft → published, các manager đã được gán quản lý nhưng
+    // chưa có assignment (vì auto-create ở /managers PUT bị skip khi draft)
+    // giờ sẽ tự động có document assignment để thấy trong "Chương trình của tôi".
+    const managerIds = progData.assignedManagers ?? [];
+    const createdManagerAssignments: string[] = [];
+    if (managerIds.length > 0) {
+      const batch = adminDb.batch();
+      const existing = await Promise.all(
+        managerIds.map((uid) =>
+          adminDb.collection("assignments").doc(`${uid}_${programId}`).get()
+        )
+      );
+      for (let i = 0; i < managerIds.length; i++) {
+        const uid = managerIds[i];
+        if (existing[i].exists) continue;
+        const assignRef = adminDb
+          .collection("assignments")
+          .doc(`${uid}_${programId}`);
+        batch.set(assignRef, {
+          userId: uid,
+          programId,
+          assignedAt: new Date(),
+          assignedBy: me.uid,
+          status: "not_started",
+          source: "auto_from_publish",
+        });
+        createdManagerAssignments.push(uid);
+      }
+      if (createdManagerAssignments.length > 0) {
+        await batch.commit();
+      }
+    }
+
     // Publish ảnh hưởng đến mọi user có thể được gán chương trình này,
     // nên xóa cache của tất cả user (an toàn hơn).
     invalidateAll();
 
-    return ok();
+    return ok({
+      success: true,
+      managersAutoAssigned: createdManagerAssignments,
+    });
   } catch (e) {
     console.error("[api/programs/:id/publish][POST] error:", e);
     return bad(e instanceof Error ? e.message : "Internal error", 500);
@@ -66,9 +108,11 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ programI
     const snap = await ref.get();
     if (!snap.exists) return bad("Program not found", 404);
 
-    // Manager: chỉ unpublish program của họ
-    const progData = snap.data() as { managerId?: string };
-    const isProgramOwner = me.role === "manager" && progData.managerId === me.uid;
+    // Manager: chỉ unpublish program được gán cho họ
+    const progData = snap.data() as { assignedManagers?: string[] };
+    const isProgramOwner =
+      me.role === "manager" &&
+      (progData.assignedManagers ?? []).includes(me.uid);
     if (!isAdmin(me) && !isProgramOwner) {
       return bad("Forbidden - bạn không có quyền unpublish chương trình này", 403);
     }

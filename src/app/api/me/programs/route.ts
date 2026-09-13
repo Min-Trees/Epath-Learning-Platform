@@ -19,7 +19,11 @@ export async function GET(req: NextRequest) {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
 
-    const cached = getCachedMePrograms(me.uid);
+    // Manager không dùng cache để self-heal luôn chạy (đảm bảo luôn thấy
+    // chương trình được gán, kể cả khi assignment doc bị thiếu do đồng bộ).
+    const useCache = me.role !== "manager";
+
+    const cached = useCache ? getCachedMePrograms(me.uid) : null;
     if (cached) {
       return ok(cached);
     }
@@ -37,6 +41,56 @@ export async function GET(req: NextRequest) {
         .collection("assignments")
         .where("userId", "==", me.uid)
         .get();
+    }
+
+    // 1b. SELF-HEAL cho manager: nếu user là manager và chưa có assignment
+    // cho 1 chương trình đã published trong assignedManagers của họ → tự
+    // tạo assignment + trả về luôn. Đây là fallback cho trường hợp chương
+    // trình được publish trước khi auto-create được triển khai, hoặc sync
+    // bị miss. Đảm bảo manager không bao giờ bị "thiếu chương trình".
+    if (!isAdmin(me) && me.role === "manager") {
+      try {
+        const managedProgsSnap = await adminDb
+          .collection("programs")
+          .where("assignedManagers", "array-contains", me.uid)
+          .where("status", "==", "published")
+          .get();
+
+        const existingProgramIds = new Set(
+          assignmentsSnap.docs.map((d) => (d.data() as { programId?: string }).programId ?? "")
+        );
+
+        const batch = adminDb.batch();
+        let syncedCount = 0;
+        for (const pSnap of managedProgsSnap.docs) {
+          if (existingProgramIds.has(pSnap.id)) continue;
+          const assignRef = adminDb
+            .collection("assignments")
+            .doc(`${me.uid}_${pSnap.id}`);
+          batch.set(assignRef, {
+            userId: me.uid,
+            programId: pSnap.id,
+            assignedAt: new Date(),
+            assignedBy: "self-heal-on-read",
+            status: "not_started",
+            source: "self_heal_lazy",
+          });
+          syncedCount++;
+        }
+        if (syncedCount > 0) {
+          await batch.commit();
+          console.log(
+            `[api/me/programs][GET] self-healed ${syncedCount} assignment(s) for manager ${me.uid}`
+          );
+          // Refetch assignments để có doc mới
+          assignmentsSnap = await adminDb
+            .collection("assignments")
+            .where("userId", "==", me.uid)
+            .get();
+        }
+      } catch (e) {
+        console.warn("[api/me/programs][GET] self-heal failed:", e);
+      }
     }
 
     // 2. Deduplicate assignments by programId

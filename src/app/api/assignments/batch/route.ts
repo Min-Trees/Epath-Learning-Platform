@@ -30,12 +30,19 @@ export async function DELETE(req: NextRequest) {
           adminDb.collection("users").doc(userId).get(),
           adminDb.collection("programs").doc(programId).get(),
         ]);
-        const userData = userDoc.exists ? (userDoc.data() as { managerId?: string }) : null;
-        const progData = progDoc.exists ? (progDoc.data() as { managerId?: string }) : null;
+        const userData = userDoc.exists
+          ? (userDoc.data() as { managerId?: string })
+          : null;
+        const progData = progDoc.exists
+          ? (progDoc.data() as { assignedManagers?: string[] })
+          : null;
         if (!userData || userData.managerId !== me.uid) {
           return bad(`Forbidden - user ${userId} không thuộc quyền của bạn`, 403);
         }
-        if (!progData || progData.managerId !== me.uid) {
+        if (
+          !progData ||
+          !(progData.assignedManagers ?? []).includes(me.uid)
+        ) {
           return bad(`Forbidden - program ${programId} không thuộc quyền của bạn`, 403);
         }
       }

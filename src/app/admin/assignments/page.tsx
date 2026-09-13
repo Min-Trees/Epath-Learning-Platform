@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Loader2,
@@ -240,6 +241,7 @@ function ProgramItemInEmployee({
 function AdminAssignmentsPageInner() {
   const { user } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isAdmin = user?.role === "admin" || user?.role === "manager";
   const searchParams = useSearchParams();
   const presetProgramId = searchParams.get("programId");
@@ -297,13 +299,19 @@ function AdminAssignmentsPageInner() {
         getDocs(collection(db, "users")),
         assignmentService.list(),
       ]);
-      if (progRes.success) {
-        setPrograms(
-          (progRes.data as { items: Program[] }).items.filter(
-            (p) => p.status === "published"
-          )
-        );
-      }
+      const rawItems =
+        progRes.success
+          ? (progRes.data as { items: Program[] }).items
+          : ([] as Program[]);
+      console.log("[DEBUG fetchData] Programs from API:", rawItems.length, rawItems.map((p) => p.title));
+      console.log("[DEBUG fetchData] Assignments from API:", (assignsRes.data as { items: Assignment[] })?.items?.length ?? 0, "items");
+      console.log("[DEBUG fetchData] Users from Firestore:", usersSnap.size, "docs");
+      // Hiển thị TẤT CẢ chương trình (cả draft + published) để admin
+      // có thể quản lý việc gán quản lý cho cả chương trình nháp.
+      // API /api/assignments POST đã tự chặn không cho gán nhân viên
+      // vào chương trình chưa publish → không sợ gán nhầm.
+      setPrograms(rawItems);
+      console.log("[DEBUG fetchData] Programs with assignedManagers:", rawItems.map((p) => ({ id: p.id, title: p.title, assignedManagers: (p as unknown as { assignedManagers?: string[] }).assignedManagers })));
       const userList: User[] = usersSnap.docs.map((d) => {
         const data = d.data();
         return {
@@ -376,6 +384,7 @@ function AdminAssignmentsPageInner() {
     return result;
   }, [users, departmentFilter, searchQuery]);
 
+  // Filter programs theo search trước (dùng cho stats và danh sách "theo NV")
   const filteredPrograms = useMemo(() => {
     if (!searchQuery) return programs;
     const q = searchQuery.toLowerCase();
@@ -385,6 +394,32 @@ function AdminAssignmentsPageInner() {
         (p.description ?? "").toLowerCase().includes(q)
     );
   }, [programs, searchQuery]);
+
+  // Áp dụng search filter cho admin. Manager đã bị filter theo quyền ở
+  // `visiblePrograms` rồi, search chỉ refine tiếp trong tập đó.
+  const searchedPrograms = useMemo(() => {
+    if (!searchQuery) return programs;
+    const q = searchQuery.toLowerCase();
+    return programs.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        (p.description ?? "").toLowerCase().includes(q)
+    );
+  }, [programs, searchQuery]);
+
+  // Filter programs theo role cho view "theo chương trình" & dialog gán:
+  //  - Admin: thấy tất cả
+  //  - Manager: CHỈ thấy chương trình được gán qua assignedManagers
+  const visiblePrograms = useMemo(() => {
+    if (user?.role === "manager") {
+      return searchedPrograms.filter((p) =>
+        ((p as unknown as { assignedManagers?: string[] }).assignedManagers ?? []).includes(
+          user.id
+        )
+      );
+    }
+    return searchedPrograms;
+  }, [searchedPrograms, user]);
 
   // Build assignment maps
   const userAssignmentsMap = useMemo(() => {
@@ -402,6 +437,7 @@ function AdminAssignmentsPageInner() {
       if (!map.has(a.programId)) map.set(a.programId, []);
       map.get(a.programId)!.push(a);
     }
+    console.log("[DEBUG] programAssignmentsMap programs:", [...map.keys()]);
     return map;
   }, [assignments]);
 
@@ -496,6 +532,8 @@ function AdminAssignmentsPageInner() {
         const failedCount = data.failed.length;
         setSelectedItems(new Set());
         await fetchData();
+        // Invalidate "Chương trình của tôi" cho mọi user đang mở cùng browser
+        queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
         if (failedCount === 0) {
           setSuccess(`Đã hủy gán ${successCount} phép gán`);
         } else {
@@ -525,6 +563,12 @@ function AdminAssignmentsPageInner() {
           setError("Chọn ít nhất 1 nhân viên");
           return;
         }
+        // Client-side validation: check if program is draft
+        const selectedProg = programs.find((p) => p.id === selectedProgram);
+        if (selectedProg && selectedProg.status !== "published") {
+          setError(`Chương trình "${selectedProg.title}" chưa được publish. Chỉ gán được chương trình đã publish.`);
+          return;
+        }
         const res = await assignmentService.create({
           userIds: Array.from(selectedUserIds),
           programId: selectedProgram,
@@ -542,6 +586,8 @@ function AdminAssignmentsPageInner() {
           setSelectedUserIds(new Set());
           setDialogSearchQuery("");
           await fetchData();
+          // Invalidate "Chương trình của tôi" cho mọi user đang mở cùng browser
+          queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
         } else {
           setError((res as { error?: string }).error ?? "Lỗi gán");
         }
@@ -553,6 +599,15 @@ function AdminAssignmentsPageInner() {
         }
         if (selectedProgramIds.size === 0) {
           setError("Chọn ít nhất 1 chương trình");
+          return;
+        }
+        // Client-side validation: filter out draft programs
+        const draftPrograms = programs.filter(
+          (p) => selectedProgramIds.has(p.id) && p.status !== "published"
+        );
+        if (draftPrograms.length > 0) {
+          const names = draftPrograms.map((p) => `"${p.title}"`).join(", ");
+          setError(`Các chương trình chưa publish không thể gán: ${names}`);
           return;
         }
         // Chỉ lấy user đầu tiên (vì đang ở chế độ gán theo nhân viên)
@@ -575,6 +630,8 @@ function AdminAssignmentsPageInner() {
           setSelectedProgramIds(new Set());
           setDialogSearchQuery("");
           await fetchData();
+          // Invalidate "Chương trình của tôi" cho mọi user đang mở cùng browser
+          queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
         } else {
           setError((res as { error?: string }).error ?? "Lỗi gán");
         }
@@ -594,6 +651,8 @@ function AdminAssignmentsPageInner() {
       if (res.success) {
         setSuccess("Đã hủy gán");
         await fetchData();
+        // Invalidate "Chương trình của tôi"
+        queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
       } else {
         setError((res as { error?: string }).error ?? "Lỗi hủy gán");
       }
@@ -823,13 +882,64 @@ function AdminAssignmentsPageInner() {
         </Card>
       </div>
 
+      {/* Debug Info - Admin xem data */}
+      {process.env.NODE_ENV === "development" && (
+        <details className="bg-muted/30 rounded-lg border p-3 mb-4 text-xs">
+          <summary className="font-semibold cursor-pointer select-none">
+            🔍 Debug Info (chỉ hiển thị khi dev)
+          </summary>
+          <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="bg-background rounded p-2 border">
+              <span className="text-muted-foreground">Programs (từ API):</span>
+              <span className="ml-1 font-mono">{programs.length}</span>
+            </div>
+            <div className="bg-background rounded p-2 border">
+              <span className="text-muted-foreground">Assignments:</span>
+              <span className="ml-1 font-mono">{assignments.length}</span>
+            </div>
+            <div className="bg-background rounded p-2 border">
+              <span className="text-muted-foreground">Employees:</span>
+              <span className="ml-1 font-mono">{users.length}</span>
+            </div>
+            <div className="bg-background rounded p-2 border">
+              <span className="text-muted-foreground">Filtered (search):</span>
+              <span className="ml-1 font-mono">{filteredPrograms.length}</span>
+            </div>
+          </div>
+          {programs.length > 0 && (
+            <div className="mt-2">
+              <span className="text-muted-foreground">Danh sách programs: </span>
+              <span className="font-mono">
+                {programs.map((p) => `${p.title}${p.status !== "published" ? " [" + p.status + "]" : ""}`).join(", ")}
+              </span>
+            </div>
+          )}
+          {programs.length > 0 && (
+            <div className="mt-1">
+              <span className="text-muted-foreground">Managers đã gán: </span>
+              <span className="font-mono">
+                {programs.map((p) => `${p.title}: [${((p as unknown as { assignedManagers?: string[] }).assignedManagers ?? []).join(", ")}]`).join(" | ")}
+              </span>
+            </div>
+          )}
+          {assignments.length > 0 && (
+            <div className="mt-1">
+              <span className="text-muted-foreground">Programs có assignment: </span>
+              <span className="font-mono">
+                {[...new Set(assignments.map((a) => a.programId))].join(", ")}
+              </span>
+            </div>
+          )}
+        </details>
+      )}
+
       {/* Warning if no programs */}
       {programs.length === 0 && !isLoading && (
         <Alert className="mb-6">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Chưa có chương trình <strong>published</strong>. Hãy publish ít nhất
-            1 chương trình trước khi gán.
+            Chưa có chương trình nào. Tạo và publish ít nhất
+            1 chương trình trước khi gán nhân viên.
             <Link
               href="/admin/programs"
               className="ml-2 font-medium text-primary underline"
@@ -966,16 +1076,20 @@ function AdminAssignmentsPageInner() {
         </div>
       ) : viewMode === "programs" ? (
         /* View by Programs */
-        filteredPrograms.length === 0 ? (
+        visiblePrograms.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <BookOpen className="mx-auto mb-2 h-8 w-8 opacity-50" />
-              <p>Không có chương trình nào.</p>
+              <p>
+                {user?.role === "manager"
+                  ? "Bạn chưa được gán quản lý chương trình nào."
+                  : "Không có chương trình nào."}
+              </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-3">
-            {filteredPrograms.map((program) => {
+            {visiblePrograms.map((program) => {
               const programAssigns = programAssignmentsMap.get(program.id) ?? [];
               const filteredAssigns =
                 statusFilter === "all"
@@ -1012,6 +1126,12 @@ function AdminAssignmentsPageInner() {
                           </div>
                           <div className="min-w-0">
                             <CardTitle className="text-sm sm:text-base flex items-center gap-2 flex-wrap">
+                              <Badge
+                                variant={program.status === "published" ? "success" : "secondary"}
+                                className="text-xs shrink-0"
+                              >
+                                {program.status === "published" ? "Đã publish" : "Bản nháp"}
+                              </Badge>
                               <span className="truncate">{program.title}</span>
                               <Badge variant="outline" className="text-xs shrink-0">
                                 {filteredAssigns.length} NV
@@ -1166,8 +1286,14 @@ function AdminAssignmentsPageInner() {
               .slice((currentPage - 1) * pageSize, currentPage * pageSize)
               .map((employee) => {
             const userAssigns = userAssignmentsMap.get(employee.id) ?? new Map();
-            let assignedPrograms = programs.filter((p) => userAssigns.has(p.id));
-            
+            // Manager: chỉ thấy các chương trình mà manager được gán quản lý.
+            // Admin: thấy tất cả.
+            const programsInScope =
+              user?.role === "manager" ? visiblePrograms : programs;
+            let assignedPrograms = programsInScope.filter((p) =>
+              userAssigns.has(p.id)
+            );
+
             // Filter by status
             if (statusFilter !== "all") {
               assignedPrograms = assignedPrograms.filter(
@@ -1459,10 +1585,11 @@ function AdminAssignmentsPageInner() {
                     Chương trình đào tạo <span className="text-destructive">*</span>
                   </label>
                   <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border p-2">
-                    {programs.map((p) => {
+                    {visiblePrograms.map((p) => {
                       const currentAssignCount = assignments.filter(
                         (a) => a.programId === p.id
                       ).length;
+                      const isDraft = p.status !== "published";
                       return (
                         <label
                           key={p.id}
@@ -1472,6 +1599,7 @@ function AdminAssignmentsPageInner() {
                               ? "border-primary bg-primary/5"
                               : "hover:bg-muted/50"
                             }
+                            ${isDraft ? "opacity-60" : ""}
                           `}
                         >
                           <div
@@ -1489,10 +1617,18 @@ function AdminAssignmentsPageInner() {
                           </div>
                           <div
                             className="flex-1 min-w-0 cursor-pointer"
-                            onClick={() => setSelectedProgram(p.id)}
+                            onClick={() => !isDraft && setSelectedProgram(p.id)}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <p className="font-medium text-sm truncate">{p.title}</p>
+                              <div className="flex items-center gap-1.5">
+                                <Badge
+                                  variant={isDraft ? "secondary" : "success"}
+                                  className="text-xs shrink-0"
+                                >
+                                  {isDraft ? "Nháp" : "Publish"}
+                                </Badge>
+                                <p className={`font-medium text-sm truncate ${isDraft ? "line-through" : ""}`}>{p.title}</p>
+                              </div>
                               <Badge variant="secondary" className="text-xs shrink-0">
                                 {currentAssignCount} NV
                               </Badge>
@@ -1500,6 +1636,11 @@ function AdminAssignmentsPageInner() {
                             {p.description && (
                               <p className="text-xs text-muted-foreground line-clamp-1">
                                 {p.description}
+                              </p>
+                            )}
+                            {isDraft && (
+                              <p className="text-xs text-amber-600 mt-1">
+                                ⚠️ Chương trình chưa publish, không thể gán nhân viên
                               </p>
                             )}
                           </div>
@@ -1771,14 +1912,17 @@ function AdminAssignmentsPageInner() {
                         onClick={() => {
                           const userId = Array.from(selectedUserIds)[0];
                           if (!userId) {
-                            setSelectedProgramIds(new Set(programs.map((p) => p.id)));
+                            // Only select published programs
+                            setSelectedProgramIds(
+                              new Set(programs.filter((p) => p.status === "published").map((p) => p.id))
+                            );
                             return;
                           }
                           const userAssigns = userAssignmentsMap.get(userId) ?? new Map();
                           setSelectedProgramIds(
                             new Set(
                               programs
-                                .filter((p) => !userAssigns.has(p.id))
+                                .filter((p) => p.status === "published" && !userAssigns.has(p.id))
                                 .map((p) => p.id)
                             )
                           );
@@ -1790,7 +1934,7 @@ function AdminAssignmentsPageInner() {
                   </div>
 
                   <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2">
-                    {programs.map((p) => {
+                    {visiblePrograms.map((p) => {
                       const userId = Array.from(selectedUserIds)[0];
                       const userAssigns = userId
                         ? userAssignmentsMap.get(userId) ?? new Map()
@@ -1799,6 +1943,7 @@ function AdminAssignmentsPageInner() {
                       const assignment = alreadyAssigned
                         ? userAssigns.get(p.id)
                         : null;
+                      const isDraft = p.status !== "published";
 
                       return (
                         <label
@@ -1811,12 +1956,14 @@ function AdminAssignmentsPageInner() {
                               ? "border-primary bg-primary/5"
                               : "hover:bg-muted/50"
                             }
+                            ${isDraft ? "opacity-60" : ""}
                           `}
                         >
                           <Checkbox
                             checked={selectedProgramIds.has(p.id)}
                             disabled={Boolean(alreadyAssigned)}
                             onCheckedChange={(checked) => {
+                              if (isDraft) return;
                               setSelectedProgramIds((s) => {
                                 const ns = new Set(s);
                                 if (checked) ns.add(p.id);
@@ -1827,7 +1974,15 @@ function AdminAssignmentsPageInner() {
                             className="shrink-0"
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{p.title}</p>
+                            <div className="flex items-center gap-1.5">
+                              <Badge
+                                variant={isDraft ? "secondary" : "success"}
+                                className="text-xs shrink-0"
+                              >
+                                {isDraft ? "Nháp" : "Publish"}
+                              </Badge>
+                              <p className={`text-sm font-medium truncate ${isDraft ? "line-through" : ""}`}>{p.title}</p>
+                            </div>
                             {p.description && (
                               <p className="text-xs text-muted-foreground line-clamp-1">
                                 {p.description}

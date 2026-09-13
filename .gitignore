@@ -57,3 +57,11 @@ next-env.d.ts
 # Local build logs
 build.log
 
+# Dev session logs (created by various local dev scripts)
+dev.log
+dev-error.log
+dev-output.log
+_devlog.txt
+_deverr.txt
+_devout.txt
+

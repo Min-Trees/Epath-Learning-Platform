@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManagerOrAdmin, ok, bad } from "@/lib/api-auth";
+import { invalidateUser } from "@/lib/cache/program-cache";
 
 /**
  * GET /api/programs
@@ -36,7 +37,12 @@ export async function GET(req: NextRequest) {
     ref = ref.orderBy("createdAt", "desc").limit(200);
 
     const snap = await ref.get();
-    const items = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }));
+    console.log("[api/programs][GET] Total programs:", snap.size);
+    const items = snap.docs.map((d) => {
+      const data = d.data();
+      console.log(`[api/programs][GET] Program ${d.id}:`, data.title, "| assignedManagers:", data.assignedManagers);
+      return { id: d.id, ...(data as object) };
+    });
 
     // Admin/Manager: also fetch groups
     const groups =
@@ -96,6 +102,32 @@ export async function POST(req: NextRequest) {
       assignedManagers,
       ...(body.groupId !== undefined ? { groupId: body.groupId } : {}),
     });
+
+    // Auto-tạo assignment cho từng manager trong assignedManagers để họ thấy
+    // chương trình ngay trong "Chương trình của tôi" khi chương trình được
+    // publish. Nếu program vẫn ở trạng thái draft, /api/me/programs sẽ lọc ra
+    // cho non-admin — nhưng document assignment vẫn tồn tại để khi publish
+    // không cần đồng bộ lại.
+    if (assignedManagers.length > 0) {
+      const batch = adminDb.batch();
+      for (const uid of assignedManagers) {
+        const assignRef = adminDb
+          .collection("assignments")
+          .doc(`${uid}_${ref.id}`);
+        batch.set(assignRef, {
+          userId: uid,
+          programId: ref.id,
+          assignedAt: new Date(),
+          assignedBy: me.uid,
+          status: "not_started",
+          source: "auto_creator",
+        });
+      }
+      await batch.commit();
+      // Clear cache của các manager được gán tự động
+      for (const uid of assignedManagers) invalidateUser(uid);
+    }
+
     return ok({ programId: ref.id });
   } catch (e) {
     console.error("[api/programs][POST] error:", e);
