@@ -33,6 +33,10 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# VPS/SSH scripts — chứa credentials (đọc từ env var), KHÔNG commit
+scripts/ssh-*.cjs
+!scripts/_ssh-helper.cjs
+
 # File chứa env cho Vercel (có thể paste giá trị thật → KHÔNG commit)
 # Khi cần share team thì dùng cách khác (1Password, Vercel Dashboard, v.v.)
 env-vercel.env
