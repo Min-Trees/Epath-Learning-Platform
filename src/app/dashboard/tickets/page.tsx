@@ -8,12 +8,20 @@ import {
   CheckCircle,
   AlertCircle,
   XCircle,
+  MessageSquare,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TicketDialog } from "@/components/ticket/ticket-dialog";
 import { ticketService } from "@/services/training";
 import type { Ticket, TicketStatus, TicketPriority, TicketCategory } from "@/types/training";
@@ -53,8 +61,19 @@ export default function TicketsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Detail dialog state — để user xem được full ticket + adminNote khi admin phản hồi
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const pageSize = 10;
+
+  // Normalize Date fields từ JSON serialization (server trả ISO string, không phải Date object)
+  const toDate = (v: Date | string | undefined): Date | undefined => {
+    if (!v) return undefined;
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  };
 
   const fetchTickets = useCallback(async () => {
     setIsLoading(true);
@@ -77,17 +96,21 @@ export default function TicketsPage() {
 
   const totalPages = Math.ceil(total / pageSize);
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string | undefined) => {
+    const d = toDate(date);
+    if (!d) return "";
     try {
-      return format(date, "dd/MM/yyyy HH:mm", { locale: vi });
+      return format(d, "dd/MM/yyyy HH:mm", { locale: vi });
     } catch {
       return "";
     }
   };
 
-  const formatRelativeDate = (date: Date) => {
+  const formatRelativeDate = (date: Date | string | undefined) => {
+    const d = toDate(date);
+    if (!d) return "";
     try {
-      return formatDistanceToNow(date, { addSuffix: true, locale: vi });
+      return formatDistanceToNow(d, { addSuffix: true, locale: vi });
     } catch {
       return "";
     }
@@ -210,9 +233,14 @@ export default function TicketsPage() {
                 const priority = priorityConfig[ticket.priority];
                 const StatusIcon = status.icon;
                 return (
-                  <div
+                  <button
                     key={ticket.id}
-                    className="rounded-lg border p-4 transition-colors hover:bg-muted/50"
+                    type="button"
+                    onClick={() => {
+                      setSelectedTicket(ticket);
+                      setDetailOpen(true);
+                    }}
+                    className="w-full rounded-lg border p-4 text-left transition-colors hover:bg-muted/50 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -237,15 +265,15 @@ export default function TicketsPage() {
                             {formatRelativeDate(ticket.createdAt)}
                           </span>
                           {ticket.adminNote && (
-                            <span className="text-green-600 dark:text-green-400">
-                              💬 {ticket.adminNote.substring(0, 50)}
-                              {ticket.adminNote.length > 50 ? "..." : ""}
+                            <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                              <MessageSquare className="h-3 w-3" />
+                              Đã có phản hồi từ Admin
                             </span>
                           )}
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
 
@@ -277,6 +305,98 @@ export default function TicketsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Detail dialog — để user xem được full adminNote khi admin phản hồi */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bug className="h-5 w-5" />
+              Chi tiết yêu cầu
+            </DialogTitle>
+            <DialogDescription>
+              Xem chi tiết và phản hồi từ Admin
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTicket && (() => {
+            const status = statusConfig[selectedTicket.status];
+            const StatusIcon = status.icon;
+            return (
+              <div className="space-y-4">
+                {/* Title + badges */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-lg break-words">
+                    {selectedTicket.title}
+                  </h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge
+                      className={priorityConfig[selectedTicket.priority].color}
+                      variant="secondary"
+                    >
+                      {priorityConfig[selectedTicket.priority].label}
+                    </Badge>
+                    <Badge className={status.color} variant="secondary">
+                      <StatusIcon className="mr-1 h-3 w-3" />
+                      {status.label}
+                    </Badge>
+                    <Badge variant="outline">
+                      {categoryLabels[selectedTicket.category]}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Meta */}
+                <div className="text-sm space-y-1 rounded-lg bg-muted/50 p-3">
+                  <p className="text-muted-foreground">
+                    <span className="font-medium">Thời gian gửi:</span>{" "}
+                    {formatDate(selectedTicket.createdAt)}
+                  </p>
+                  {selectedTicket.updatedAt &&
+                    formatDate(selectedTicket.updatedAt) !==
+                      formatDate(selectedTicket.createdAt) && (
+                      <p className="text-muted-foreground">
+                        <span className="font-medium">Cập nhật lần cuối:</span>{" "}
+                        {formatDate(selectedTicket.updatedAt)}
+                      </p>
+                    )}
+                  {selectedTicket.resolvedAt && (
+                    <p className="text-muted-foreground">
+                      <span className="font-medium">Đã giải quyết:</span>{" "}
+                      {formatDate(selectedTicket.resolvedAt)}
+                    </p>
+                  )}
+                </div>
+
+                {/* Description */}
+                <div>
+                  <p className="font-medium text-sm mb-2">Mô tả của bạn:</p>
+                  <div className="text-sm bg-background rounded-md p-3 whitespace-pre-wrap break-words border">
+                    {selectedTicket.description}
+                  </div>
+                </div>
+
+                {/* Admin response — phần quan trọng nhất: hiển thị full adminNote */}
+                {selectedTicket.adminNote ? (
+                  <div>
+                    <p className="font-medium text-sm mb-2 flex items-center gap-2 text-green-700 dark:text-green-400">
+                      <MessageSquare className="h-4 w-4" />
+                      Phản hồi từ Admin:
+                    </p>
+                    <div className="text-sm bg-green-50 dark:bg-green-900/20 rounded-md p-3 whitespace-pre-wrap break-words border border-green-200 dark:border-green-900">
+                      {selectedTicket.adminNote}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground text-center">
+                    Admin chưa phản hồi. Yêu cầu của bạn đang được xử lý.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }
