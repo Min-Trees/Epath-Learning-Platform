@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
@@ -61,15 +61,17 @@ export default function PdfPage({
     return () => observer.disconnect();
   }, [isMobile]);
 
-  // Đo width container cha + lắng nghe resize để fit-to-width mobile hoạt động
+  // Đo width khả dụng để render canvas.
+  // parent = .pdf-page wrapper. Nó đã nằm trong scroll container có p-4,
+  // nên clientWidth của parent CHÍNH LÀ content width khả dụng — không trừ
+  // thêm padding nữa (trước đây trừ 32px là SAI, làm canvas bị nhỏ hơn cần).
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const parent = el.parentElement;
     if (!parent) return;
     const measure = () => {
-      // Trừ padding p-4 (16px mỗi bên) của scroll container
-      const w = parent.clientWidth - 32;
+      const w = parent.clientWidth;
       setContainerWidth(w > 0 ? w : 0);
     };
     measure();
@@ -81,6 +83,16 @@ export default function PdfPage({
     ro.observe(parent);
     return () => ro.disconnect();
   }, [inView]);
+
+  // Sync canvas style với containerWidth NGAY TRƯỚC khi browser paint
+  // (chạy đồng bộ sau commit, trước useEffect). Tránh React reset lại
+  // width: "100%" của canvas JSX inline style.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || containerWidth <= 0) return;
+    canvas.style.width = `${containerWidth}px`;
+    canvas.style.height = "auto";
+  }, [containerWidth, inView]);
 
   const renderPage = useCallback(async () => {
     if (!canvasRef.current || !inView) return;
@@ -221,10 +233,11 @@ export default function PdfPage({
       <canvas
         ref={canvasRef}
         style={{
+          // KHÔNG set width/height ở đây — để useLayoutEffect + renderPage
+          // kiểm soát hoàn toàn. Nếu đặt "width: 100%" ở JSX, React sẽ
+          // reset lại canvas về 100% parent mỗi lần re-render (khi `scale`,
+          // `rendering`, `failed` thay đổi), phá vỡ kích thước JS-set.
           display: "block",
-          width: "100%",
-          maxWidth: "100%",
-          height: "auto",
           userSelect: "none",
           // @ts-expect-error: vendor-prefix CSS không có trong CSSProperties
           WebkitUserDrag: "none",

@@ -76,7 +76,14 @@ export function SecurePdfViewer({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [scale, setScale] = useState(1);
+  // Default mobile scale = 1.3× fit-to-width: text đã đủ to để đọc được
+  // (A4 gốc ~793 CSS px, iPhone ~390 px → fit-to-width co lại ~50% → text
+  // sẽ quá nhỏ. 1.3× làm text lớn hơn fit-to-width ~30%, trang rộng hơn
+  // màn hình nhưng user cuộn ngang được nhờ touch-action: pan-y pinch-zoom
+  // và nút "Vừa màn hình" reset về mặc định này).
+  const defaultScale = IS_MOBILE ? 1.3 : 1;
+  const [userScale, setUserScale] = useState<number | null>(null);
+  const scale = userScale ?? defaultScale;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const hasCompletedRef = useRef(false);
@@ -305,7 +312,9 @@ export function SecurePdfViewer({
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
                   onClick={() =>
-                    setScale((s) => Math.max(0.5, +(s - 0.2).toFixed(2)))
+                    setUserScale((s) =>
+                      Math.max(0.5, +(((s ?? defaultScale) - 0.2)).toFixed(2))
+                    )
                   }
                   aria-label="Thu nhỏ"
                 >
@@ -319,20 +328,22 @@ export function SecurePdfViewer({
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
                   onClick={() =>
-                    setScale((s) => Math.min(3, +(s + 0.2).toFixed(2)))
+                    setUserScale((s) =>
+                      Math.min(3, +(((s ?? defaultScale) + 0.2)).toFixed(2))
+                    )
                   }
                   aria-label="Phóng to"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
-                {/* "Vừa màn hình" — scale=1 = fit-to-width trên mobile, 100% desktop */}
+                {/* "Vừa màn hình" — reset về defaultScale (1.3× mobile, 1× desktop) */}
                 <Button
                   variant="outline"
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
-                  onClick={() => setScale(1)}
+                  onClick={() => setUserScale(null)}
                   aria-label="Vừa màn hình"
-                  title="Vừa màn hình"
+                  title={`Vừa màn hình (${Math.round(defaultScale * 100)}%)`}
                 >
                   <X className="h-4 w-4" />
                 </Button>
