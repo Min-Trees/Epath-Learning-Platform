@@ -28,12 +28,27 @@ interface TokenResponse {
   error?: string;
 }
 
-// Detect mobile để chọn chiến lược render phù hợp
-const IS_MOBILE =
-  typeof window !== "undefined" &&
-  /Android|iPhone|iPad|iPod|Opera Mini/i.test(
-    window.navigator?.userAgent ?? ""
-  );
+/**
+ * Reactive media query hook — chạy đúng trên client, cập nhật khi viewport
+ * đổi (xoay máy, resize cửa sổ, chuyển thiết bị).
+ */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia(query);
+    setMatches(mql.matches);
+    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
+    // Safari < 14 dùng addListener cũ
+    if (mql.addEventListener) {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    mql.addListener(onChange);
+    return () => mql.removeListener(onChange);
+  }, [query]);
+  return matches;
+}
 
 // Component render một trang PDF cụ thể vào canvas.
 // Được tách ra và load qua next/dynamic để tránh import pdfjs-dist
@@ -54,6 +69,8 @@ export function SecurePdfViewer({
   fileName,
   onComplete,
 }: SecurePdfViewerProps) {
+  // Reactive: cập nhật khi user xoay máy / resize / chuyển thiết bị
+  const IS_MOBILE = useMediaQuery("(max-width: 768px)");
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +199,12 @@ export function SecurePdfViewer({
           <div
             ref={containerRef}
             className="h-full w-full overflow-auto bg-muted/30 p-4"
+            style={{
+              // Cho phép pinch-zoom native trên mobile (scale = 1 → user vẫn
+              // dùng tay zoom được mà không bị trình duyệt chặn)
+              touchAction: "pan-y pinch-zoom",
+              overscrollBehavior: "contain",
+            }}
           >
             {numPages > 0 ? (
               <div style={{ minWidth: 0, maxWidth: "100%" }}>
@@ -242,69 +265,82 @@ export function SecurePdfViewer({
             )}
           </div>
         )}
-      </div>
 
-      {/* Toolbar */}
-      {pdfBlob && !error && numPages > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 p-2">
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={currentPage <= 1}
-              onClick={() => goToPage(Math.max(1, currentPage - 1))}
-              aria-label="Trang trước"
+        {/* Toolbar nổi đáy viewer — luôn hiển thị, dùng được khi đang đọc PDF */}
+        {pdfBlob && !error && numPages > 0 && (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-2 sm:p-3"
+          >
+            <div
+              className="pointer-events-auto flex max-w-full flex-wrap items-center justify-between gap-1 rounded-lg border bg-background/85 px-2 py-1.5 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/65 sm:gap-2 sm:px-3 sm:py-2"
             >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-2 text-sm tabular-nums">
-              {currentPage} / {numPages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={currentPage >= numPages}
-              onClick={() => goToPage(Math.min(numPages, currentPage + 1))}
-              aria-label="Trang sau"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 sm:h-9 sm:w-9"
+                  disabled={currentPage <= 1}
+                  onClick={() => goToPage(Math.max(1, currentPage - 1))}
+                  aria-label="Trang trước"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-1 text-xs tabular-nums sm:px-2 sm:text-sm">
+                  {currentPage} / {numPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 sm:h-9 sm:w-9"
+                  disabled={currentPage >= numPages}
+                  onClick={() => goToPage(Math.min(numPages, currentPage + 1))}
+                  aria-label="Trang sau"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 sm:h-9 sm:w-9"
+                  onClick={() =>
+                    setScale((s) => Math.max(0.5, +(s - 0.2).toFixed(2)))
+                  }
+                  aria-label="Thu nhỏ"
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+                <span className="px-1 text-xs tabular-nums sm:px-2 sm:text-sm">
+                  {Math.round(scale * 100)}%
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 sm:h-9 sm:w-9"
+                  onClick={() =>
+                    setScale((s) => Math.min(3, +(s + 0.2).toFixed(2)))
+                  }
+                  aria-label="Phóng to"
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </Button>
+                {/* "Vừa màn hình" — scale=1 = fit-to-width trên mobile, 100% desktop */}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 sm:h-9 sm:w-9"
+                  onClick={() => setScale(1)}
+                  aria-label="Vừa màn hình"
+                  title="Vừa màn hình"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() =>
-                setScale((s) => Math.max(0.5, +(s - 0.25).toFixed(2)))
-              }
-              aria-label="Thu nhỏ"
-            >
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="px-2 text-sm tabular-nums">
-              {Math.round(scale * 100)}%
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() =>
-                setScale((s) => Math.min(3, +(s + 0.25).toFixed(2)))
-              }
-              aria-label="Phóng to"
-            >
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setScale(1.25)}
-              aria-label="Đặt lại"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

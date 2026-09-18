@@ -7,6 +7,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 interface PdfPageProps {
   blob: Blob;
   pageNumber: number;
+  /** Zoom do user chọn (1 = 100%). Trên mobile sẽ nhân với fit-to-width scale. */
   scale: number;
   isMobile: boolean;
   onNumPagesDetected?: (n: number) => void;
@@ -19,7 +20,10 @@ interface PdfPageProps {
  * - Dùng IntersectionObserver: chỉ render khi trang gần vào viewport (rootMargin 800px).
  * - Worker lấy từ file đi kèm trong node_modules/pdfjs-dist (luôn khớp version).
  * - Cleanup đúng cách khi unmount để giải phóng canvas + pdf document.
- * - Trên mobile, giảm scale tối đa để canvas không vượt max canvas size.
+ * - **Fit-to-width**: trên mobile, đo width của container cha rồi dùng
+ *   scale = containerWidth / pdfNativeWidth * userScale. Canvas bitmap
+ *   khớp với CSS width → không bị trình duyệt co lại → text giữ nguyên
+ *   kích thước đọc được. Đây chính là fix "PDF trên mobile quá nhỏ".
  */
 export default function PdfPage({
   blob,
@@ -35,6 +39,8 @@ export default function PdfPage({
   const [rendering, setRendering] = useState(false);
   const [inView, setInView] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Re-render khi window resize để fit-to-width cập nhật theo viewport mới
+  const [containerWidth, setContainerWidth] = useState<number>(0);
 
   // Lắng nghe viewport: chỉ render khi gần vào màn hình
   useEffect(() => {
@@ -54,6 +60,27 @@ export default function PdfPage({
     observer.observe(el);
     return () => observer.disconnect();
   }, [isMobile]);
+
+  // Đo width container cha + lắng nghe resize để fit-to-width mobile hoạt động
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const parent = el.parentElement;
+    if (!parent) return;
+    const measure = () => {
+      // Trừ padding p-4 (16px mỗi bên) của scroll container
+      const w = parent.clientWidth - 32;
+      setContainerWidth(w > 0 ? w : 0);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [inView]);
 
   const renderPage = useCallback(async () => {
     if (!canvasRef.current || !inView) return;
@@ -92,10 +119,24 @@ export default function PdfPage({
 
       const page = await doc.getPage(pageNumber);
 
-      // Mobile: scale mặc định của canvas để tránh vượt max canvas size
-      // (iOS Safari ~16MB/canvas, Android Chrome ~25MB)
-      const baseScale = isMobile ? Math.min(scale, 1.5) : scale;
-      const viewport = page.getViewport({ scale: baseScale });
+      // --- Fit-to-width cho mobile ---
+      // Lấy native viewport (scale=1) để biết trang PDF rộng bao nhiêu CSS px
+      const nativeViewport = page.getViewport({ scale: 1 });
+      let effectiveScale: number;
+      if (isMobile && containerWidth > 0) {
+        // Scale để PDF vừa khít container width hiện tại
+        const fitScale = containerWidth / nativeViewport.width;
+        effectiveScale = fitScale * scale;
+        // Giới hạn trên để canvas không vượt max canvas size mobile (~16MB)
+        // viewport.width * dpr * viewport.height * dpr * 4 bytes ≤ ~16MB
+        // → heuristic: scale ≤ 3 trên mobile là an toàn cho A4
+        effectiveScale = Math.min(effectiveScale, 3);
+      } else {
+        // Desktop: giữ nguyên user scale, không cap 1.5 nữa
+        effectiveScale = Math.min(scale, 3);
+      }
+
+      const viewport = page.getViewport({ scale: effectiveScale });
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -104,6 +145,9 @@ export default function PdfPage({
       const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
       canvas.width = Math.floor(viewport.width * dpr);
       canvas.height = Math.floor(viewport.height * dpr);
+      // Style width = intrinsic CSS width của PDF → không bị trình duyệt
+      // co lại theo parent width nữa (vì giờ đã tính sẵn cho vừa khít).
+      // Vẫn giới hạn maxWidth:100% để chắc chắn không tràn khi xoay máy.
       canvas.style.width = `${Math.floor(viewport.width)}px`;
       canvas.style.height = `${Math.floor(viewport.height)}px`;
 
@@ -137,7 +181,7 @@ export default function PdfPage({
     } finally {
       setRendering(false);
     }
-  }, [blob, pageNumber, scale, isMobile, inView, onNumPagesDetected]);
+  }, [blob, pageNumber, scale, isMobile, inView, onNumPagesDetected, containerWidth]);
 
   // Render khi đủ điều kiện
   useEffect(() => {
