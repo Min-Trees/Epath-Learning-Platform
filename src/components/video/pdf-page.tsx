@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 
 interface PdfPageProps {
   blob: Blob;
@@ -69,31 +70,17 @@ export default function PdfPage({
         ).toString();
       }
 
-      // Tải document 1 lần, cache theo blob (các trang dùng chung doc)
-      type PdfDoc = {
-        numPages: number;
-        getPage: (n: number) => Promise<PdfPage>;
-        destroy?: () => Promise<void> | void;
-      };
-      type PdfPage = {
-        getViewport: (opts: { scale: number }) => { width: number; height: number };
-        render: (opts: {
-          canvas: HTMLCanvasElement;
-          canvasContext: CanvasRenderingContext2D;
-          viewport: { width: number; height: number };
-        }) => { promise: Promise<void>; cancel: () => void };
-      };
-
-      let doc = pdfDocRef.current as PdfDoc | null;
+      // Tải document 1 lần, cache theo blob (các trang dùng chung doc).
+      // Dùng type pdfjs-dist thật — tránh xung đột khi tự định nghĩa.
+      let doc = pdfDocRef.current as PDFDocumentProxy | null;
       if (!doc) {
         const arrayBuffer = await blob.arrayBuffer();
         const loadingTask = pdfjsLib.getDocument({
           data: arrayBuffer,
-          // Mobile thường có RAM hạn chế → giữ nguyên arrayBuffer thay vì clone
           disableAutoFetch: false,
           disableStream: false,
         });
-        doc = (await loadingTask.promise) as PdfDoc;
+        doc = await loadingTask.promise;
         pdfDocRef.current = doc;
         if (onNumPagesDetected) onNumPagesDetected(doc.numPages);
       }
@@ -130,7 +117,7 @@ export default function PdfPage({
         canvasContext: ctx,
         viewport,
       });
-      renderTaskRef.current = renderTask as unknown as { cancel: () => void };
+      renderTaskRef.current = renderTask;
 
       await renderTask.promise;
       renderTaskRef.current = null;
@@ -195,9 +182,9 @@ export default function PdfPage({
           maxWidth: "100%",
           height: "auto",
           userSelect: "none",
+          // @ts-expect-error: vendor-prefix CSS không có trong CSSProperties
           WebkitUserDrag: "none",
         }}
-        // @ts-expect-error: non-standard but widely supported
         onContextMenu={(e) => e.preventDefault()}
       />
       {/* Watermark bảo mật — overlay nhẹ */}
