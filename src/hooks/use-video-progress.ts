@@ -137,9 +137,9 @@ export function useVideoProgress({
       // Không ghi nếu giá trị mới nhỏ hơn đã lưu (chống tua lùi ghi đè)
       if (watchedSeconds < lastReportedRef.current - 2) return;
       
-      // Không ghi nếu đã completed
+      // Không ghi đè nếu đã completed
       const cached = localCacheRef.current.get(cacheKey);
-      if (cached?.completed) return;
+      if (cached?.completed || state.completed) return;
 
       lastReportedRef.current = Math.max(lastReportedRef.current, watchedSeconds);
 
@@ -156,9 +156,12 @@ export function useVideoProgress({
         const pending = pendingWriteRef.current;
         if (!pending || !userId) return;
 
+        const isAlreadyCompleted = Boolean(cached?.completed || state.completed);
         const safeDuration = pending.duration > 0 ? pending.duration : pending.watchedSeconds;
-        const percentage = safeDuration > 0 ? Math.min(100, (pending.watchedSeconds / safeDuration) * 100) : 0;
-        const completed = percentage >= completionThreshold;
+        const percentage = isAlreadyCompleted
+          ? 100
+          : (safeDuration > 0 ? Math.min(100, (pending.watchedSeconds / safeDuration) * 100) : 0);
+        const completed = isAlreadyCompleted || percentage >= completionThreshold;
 
         // Update local state immediately (optimistic update)
         const newState: VideoProgressState = {

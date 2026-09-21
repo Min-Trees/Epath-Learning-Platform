@@ -73,10 +73,9 @@ function AdminReportsPageInner() {
     refetch: refetchTeam,
   } = useQuery<TeamReportSummary | null>({
     queryKey: ["report", "team"],
-    enabled: isManagerOrAdmin || isHr,
-    staleTime: 0, // luôn lấy dữ liệu mới khi mở trang
+    enabled: (isManagerOrAdmin || isHr) && tab === "team",
+    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnMount: "always",
     placeholderData: (prev) => prev,
     queryFn: async () => {
       const res = await reportService.teamProgress();
@@ -118,9 +117,8 @@ function AdminReportsPageInner() {
     queryKey: ["report", "program", effectiveProgramId],
     enabled: isAdmin && tab === "program" && Boolean(effectiveProgramId),
     placeholderData: (prev) => prev,
-    staleTime: 0, // luôn lấy dữ liệu mới khi mở trang
+    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnMount: "always",
     queryFn: async () => {
       if (!effectiveProgramId) return null;
       const res = await reportService.programProgress(effectiveProgramId);

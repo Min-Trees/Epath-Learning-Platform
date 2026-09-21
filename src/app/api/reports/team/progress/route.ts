@@ -121,7 +121,238 @@ export async function GET(req: NextRequest) {
       usersSnap = await adminDb.collection("users").get();
     }
 
-    const members: TeamMemberProgress[] = [];
+    // Batch fetch assignments
+    const assignsByUserId = new Map<string, FirebaseFirestore.QueryDocumentSnapshot[]>();
+    if (targetUserIds !== null) {
+      const batches: string[][] = [];
+      for (let i = 0; i < targetUserIds.length; i += 30) {
+        batches.push(targetUserIds.slice(i, i + 30));
+      }
+      const assignDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+      await Promise.all(
+        batches.map(async (batch) => {
+          const s = await adminDb
+            .collection("assignments")
+            .where("userId", "in", batch)
+            .get();
+          assignDocs.push(...s.docs);
+        })
+      );
+      for (const doc of assignDocs) {
+        const uid = (doc.data() as { userId?: string }).userId;
+        if (!uid) continue;
+        const list = assignsByUserId.get(uid) || [];
+        list.push(doc);
+        assignsByUserId.set(uid, list);
+      }
+    } else {
+      const allAssignsSnap = await adminDb.collection("assignments").get();
+      for (const doc of allAssignsSnap.docs) {
+        const uid = (doc.data() as { userId?: string }).userId;
+        if (!uid) continue;
+        const list = assignsByUserId.get(uid) || [];
+        list.push(doc);
+        assignsByUserId.set(uid, list);
+      }
+    }
+
+    // Program lessons cache (tránh query lặp đi lặp lại cùng 1 chương trình qua mạng)
+    const programLessonsCache = new Map<
+      string,
+      Promise<{ totalLessons: number; validLessonIds: Set<string> }>
+    >();
+
+    function getProgramLessons(programId: string) {
+      let p = programLessonsCache.get(programId);
+      if (!p) {
+        p = (async () => {
+          const snap = await adminDb
+            .collection("programs")
+            .doc(programId)
+            .collection("lessons")
+            .get();
+          return {
+            totalLessons: snap.size,
+            validLessonIds: new Set(snap.docs.map((d) => d.id)),
+          };
+        })();
+        programLessonsCache.set(programId, p);
+      }
+      return p;
+    }
+
+    const userDocsToProcess = usersSnap.docs.filter((userDoc) => {
+      const uData = userDoc.data() as { department?: string };
+      return !department || uData.department === department;
+    });
+
+    const members: TeamMemberProgress[] = await Promise.all(
+      userDocsToProcess.map(async (userDoc) => {
+        const uData = userDoc.data() as {
+          displayName?: string;
+          email?: string;
+          department?: string;
+          managerId?: string;
+        };
+        const userId = userDoc.id;
+        const userAssigns = assignsByUserId.get(userId) || [];
+
+        const assignResults = await Promise.all(
+          userAssigns.map(async (a) => {
+            const aData = a.data() as {
+              status: string;
+              programId: string;
+              updatedAt?: unknown;
+              startedAt?: unknown;
+              completedAt?: unknown;
+              assignedAt?: unknown;
+            };
+
+            let activityAt: Date | null = null;
+            // Activity date từ assignment
+            for (const field of [
+              aData.updatedAt,
+              aData.startedAt,
+              aData.completedAt,
+              aData.assignedAt,
+            ]) {
+              const d = normalizeDate(field);
+              if (d && (!activityAt || d > activityAt)) {
+                activityAt = d;
+              }
+            }
+
+            const { totalLessons, validLessonIds } = await getProgramLessons(
+              aData.programId
+            );
+
+            // Nếu chưa bắt đầu, bỏ qua truy vấn progress doc và lessons subcollection
+            if (aData.status === "not_started") {
+              return {
+                status: aData.status,
+                percent: 0,
+                avgScore: null,
+                activityAt,
+              };
+            }
+
+            // Với in_progress hoặc completed, query progress doc & lessons subcollection song song
+            const lpRef = adminDb
+              .collection("progress")
+              .doc(`${userId}_${aData.programId}`);
+            const [lpProgSnap, lpSnap] = await Promise.all([
+              lpRef.get(),
+              lpRef.collection("lessons").get(),
+            ]);
+
+            const doneLessonIds = new Set(
+              lpSnap.docs
+                .filter(
+                  (d) =>
+                    (d.data() as { lessonStatus?: string }).lessonStatus ===
+                    "completed"
+                )
+                .map((d) => d.id)
+            );
+
+            let doneLessons = 0;
+            for (const id of doneLessonIds) {
+              if (validLessonIds.has(id)) doneLessons++;
+            }
+
+            const programPercent =
+              totalLessons > 0
+                ? Math.round((doneLessons / totalLessons) * 100)
+                : aData.status === "completed"
+                  ? 100
+                  : 0;
+
+            let progScoreSum = 0;
+            let progScoreCount = 0;
+            for (const lp of lpSnap.docs) {
+              if (!validLessonIds.has(lp.id)) continue;
+              const d = lp.data() as {
+                lessonStatus?: string;
+                testResult?: { score?: number };
+                updatedAt?: unknown;
+              };
+              if (typeof d.testResult?.score === "number") {
+                progScoreSum += d.testResult.score;
+                progScoreCount++;
+              }
+              const tsDate = normalizeDate(d.updatedAt);
+              if (tsDate && (!activityAt || tsDate > activityAt)) {
+                activityAt = tsDate;
+              }
+            }
+
+            const progData = lpProgSnap.data() as
+              | { updatedAt?: unknown }
+              | undefined;
+            const progTsDate = normalizeDate(progData?.updatedAt);
+            if (progTsDate && (!activityAt || progTsDate > activityAt)) {
+              activityAt = progTsDate;
+            }
+
+            return {
+              status: aData.status,
+              percent: programPercent,
+              avgScore:
+                progScoreCount > 0
+                  ? Math.round(progScoreSum / progScoreCount)
+                  : null,
+              activityAt,
+            };
+          })
+        );
+
+        let userCompleted = 0;
+        let userInProgress = 0;
+        let userNotStarted = 0;
+        const percents: number[] = [];
+        const userScores: number[] = [];
+        let lastActivityAt: Date | null = null;
+
+        for (const r of assignResults) {
+          if (r.status === "completed") userCompleted++;
+          else if (r.status === "in_progress") userInProgress++;
+          else userNotStarted++;
+
+          percents.push(r.percent);
+          if (typeof r.avgScore === "number") userScores.push(r.avgScore);
+          if (r.activityAt && (!lastActivityAt || r.activityAt > lastActivityAt)) {
+            lastActivityAt = r.activityAt;
+          }
+        }
+
+        const overallPercent =
+          percents.length > 0
+            ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length)
+            : 0;
+        const userAvg =
+          userScores.length > 0
+            ? Math.round(
+                userScores.reduce((a, b) => a + b, 0) / userScores.length
+              )
+            : 0;
+        const userTotalAssigned = userAssigns.length;
+
+        return {
+          userId,
+          displayName: uData.displayName,
+          email: uData.email ?? "",
+          department: uData.department,
+          totalAssigned: userTotalAssigned,
+          completed: userCompleted,
+          inProgress: userInProgress,
+          notStarted: userNotStarted,
+          overallPercent,
+          averageTestScore: userAvg,
+          lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
+        };
+      })
+    );
+
     let totalAssigned = 0;
     let totalCompleted = 0;
     let totalInProgress = 0;
@@ -129,161 +360,13 @@ export async function GET(req: NextRequest) {
     let scoreSum = 0;
     let scoreCount = 0;
 
-    for (const userDoc of usersSnap.docs) {
-      const uData = userDoc.data() as {
-        displayName?: string;
-        email?: string;
-        department?: string;
-        managerId?: string;
-      };
-      if (department && uData.department !== department) continue;
-
-      const userId = userDoc.id;
-      const assignsSnap = await adminDb
-        .collection("assignments")
-        .where("userId", "==", userId)
-        .get();
-
-      let userCompleted = 0;
-      let userInProgress = 0;
-      let userNotStarted = 0;
-      const percents: number[] = [];
-      const userScores: number[] = [];
-      let lastActivityAt: Date | null = null;
-
-      for (const a of assignsSnap.docs) {
-        const aData = a.data() as { status: string; programId: string };
-        if (aData.status === "completed") userCompleted++;
-        else if (aData.status === "in_progress") userInProgress++;
-        else userNotStarted++;
-
-        // Tính % completed của chương trình (theo số lesson đã hoàn thành)
-        const lpRef = adminDb
-          .collection("progress")
-          .doc(`${userId}_${aData.programId}`);
-        const [lpProgSnap, lessonsSnap] = await Promise.all([
-          lpRef.get(),
-          adminDb
-            .collection("programs")
-            .doc(aData.programId)
-            .collection("lessons")
-            .get(),
-        ]);
-        const totalLessons = lessonsSnap.size;
-        const lpSnap = await lpRef.collection("lessons").get();
-
-        // Đếm lesson đã completed — KHÔNG tính những lesson chưa tồn tại trong progress
-        // (chỉ lesson mà user thực sự đã tương tác mới có record)
-        const doneLessonIds = new Set(
-          lpSnap.docs
-            .filter(
-              (d) =>
-                (d.data() as { lessonStatus?: string }).lessonStatus ===
-                "completed"
-            )
-            .map((d) => d.id)
-        );
-        // Đảm bảo chỉ tính những lesson thực sự thuộc chương trình
-        const validLessonIds = new Set(lessonsSnap.docs.map((l) => l.id));
-        let doneLessons = 0;
-        for (const id of doneLessonIds) {
-          if (validLessonIds.has(id)) doneLessons++;
-        }
-
-        // Mọi assignment đều phải được tính vào % tổng (kể cả chưa có lesson / chưa bắt đầu)
-        const programPercent =
-          totalLessons > 0
-            ? Math.round((doneLessons / totalLessons) * 100)
-            : aData.status === "completed"
-              ? 100
-              : 0;
-        percents.push(programPercent);
-
-        // Điểm test trung bình + last activity (chỉ tính test result của lesson thuộc chương trình)
-        let progScoreSum = 0;
-        let progScoreCount = 0;
-        for (const lp of lpSnap.docs) {
-          if (!validLessonIds.has(lp.id)) continue;
-          const d = lp.data() as {
-            lessonStatus?: string;
-            testResult?: { score?: number };
-            updatedAt?: { toDate?: () => Date } | Date | null;
-          };
-          if (typeof d.testResult?.score === "number") {
-            progScoreSum += d.testResult.score;
-            progScoreCount++;
-          }
-          const ts = d.updatedAt;
-          const tsDate = normalizeDate(ts);
-          if (tsDate && (!lastActivityAt || tsDate > lastActivityAt)) {
-            lastActivityAt = tsDate;
-          }
-        }
-        if (progScoreCount > 0) {
-          userScores.push(Math.round(progScoreSum / progScoreCount));
-        }
-
-        // updatedAt của progress doc (cập nhật gần nhất của chương trình)
-        const progData = lpProgSnap.data() as
-          | { updatedAt?: { toDate?: () => Date } | Date | null }
-          | undefined;
-        const progTsDate = normalizeDate(progData?.updatedAt);
-        if (progTsDate && (!lastActivityAt || progTsDate > lastActivityAt)) {
-          lastActivityAt = progTsDate;
-        }
-
-        // Còn tính lastActivity từ assignment.updatedAt / startedAt / completedAt
-        const progAssignments = a as { data(): unknown };
-        const aFull = progAssignments.data() as {
-          updatedAt?: unknown;
-          startedAt?: unknown;
-          completedAt?: unknown;
-          assignedAt?: unknown;
-        };
-        for (const field of [
-          aFull.updatedAt,
-          aFull.startedAt,
-          aFull.completedAt,
-          aFull.assignedAt,
-        ]) {
-          const d = normalizeDate(field);
-          if (d && (!lastActivityAt || d > lastActivityAt)) {
-            lastActivityAt = d;
-          }
-        }
-      }
-
-      const overallPercent =
-        percents.length > 0
-          ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length)
-          : 0;
-      const userAvg =
-        userScores.length > 0
-          ? Math.round(userScores.reduce((a, b) => a + b, 0) / userScores.length)
-          : 0;
-      const userTotalAssigned = assignsSnap.size;
-
-      members.push({
-        userId,
-        displayName: uData.displayName,
-        email: uData.email ?? "",
-        department: uData.department,
-        totalAssigned: userTotalAssigned,
-        completed: userCompleted,
-        inProgress: userInProgress,
-        notStarted: userNotStarted,
-        overallPercent,
-        averageTestScore: userAvg,
-        // Trả về ISO string để JSON serialize an toàn (Date không serialize qua JSON)
-        lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
-      });
-
-      totalAssigned += userTotalAssigned;
-      totalCompleted += userCompleted;
-      totalInProgress += userInProgress;
-      totalNotStarted += userNotStarted;
-      if (userScores.length > 0) {
-        scoreSum += userAvg;
+    for (const m of members) {
+      totalAssigned += m.totalAssigned;
+      totalCompleted += m.completed;
+      totalInProgress += m.inProgress;
+      totalNotStarted += m.notStarted;
+      if (m.averageTestScore > 0) {
+        scoreSum += m.averageTestScore;
         scoreCount++;
       }
     }

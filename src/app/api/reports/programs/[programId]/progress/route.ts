@@ -44,18 +44,45 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
       managedUserIds = new Set(usersSnap.docs.map((d) => d.id));
     }
 
-    // Lấy assignments
-    const assignsSnap = await adminDb
-      .collection("assignments")
-      .where("programId", "==", programId)
-      .get();
-    // Lấy lessons
-    const lessonsSnap = await adminDb
-      .collection("programs")
-      .doc(programId)
-      .collection("lessons")
-      .get();
+    // Lấy assignments và lessons song song
+    const [assignsSnap, lessonsSnap] = await Promise.all([
+      adminDb
+        .collection("assignments")
+        .where("programId", "==", programId)
+        .get(),
+      adminDb
+        .collection("programs")
+        .doc(programId)
+        .collection("lessons")
+        .get(),
+    ]);
     const totalLessons = lessonsSnap.size;
+
+    // Lọc các assignment liên quan (Manager: chỉ thống kê NV thuộc quyền)
+    const relevantAssigns = assignsSnap.docs.filter((a) => {
+      const aData = a.data() as { userId: string };
+      return managedUserIds === null || managedUserIds.has(aData.userId);
+    });
+
+    // Batch fetch thông tin tất cả users liên quan trong 1 lần gọi
+    const uniqueUserIds = Array.from(
+      new Set(relevantAssigns.map((a) => (a.data() as { userId: string }).userId))
+    );
+    const userMap = new Map<string, { displayName?: string; email?: string }>();
+    if (uniqueUserIds.length > 0) {
+      const userRefs = uniqueUserIds.map((uid) =>
+        adminDb.collection("users").doc(uid)
+      );
+      const userDocs = await adminDb.getAll(...userRefs);
+      for (const u of userDocs) {
+        if (u.exists) {
+          userMap.set(
+            u.id,
+            u.data() as { displayName?: string; email?: string }
+          );
+        }
+      }
+    }
 
     let notStarted = 0;
     let inProgress = 0;
@@ -64,58 +91,81 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ programId: 
     let scoreCount = 0;
     const atRisk: ProgramReportSummary["atRiskUsers"] = [];
 
-    for (const a of assignsSnap.docs) {
-      const aData = a.data() as { userId: string; status: string };
+    // Xử lý song song tất cả assignments
+    const results = await Promise.all(
+      relevantAssigns.map(async (a) => {
+        const aData = a.data() as { userId: string; status: string };
+        const userData = userMap.get(aData.userId);
 
-      // Manager: chỉ thống kê NV thuộc quyền
-      if (managedUserIds !== null && !managedUserIds.has(aData.userId)) continue;
+        let percent = 0;
+        let userAvg = 0;
+        let hasScore = false;
 
-      const userSnap = await adminDb
-        .collection("users")
-        .doc(aData.userId)
-        .get();
-      const userData = userSnap.data() as
-        | { displayName?: string; email?: string }
-        | undefined;
+        if (aData.status === "not_started") {
+          percent = 0;
+        } else {
+          // Tính % complete từ progress
+          const progRef = adminDb
+            .collection("progress")
+            .doc(`${aData.userId}_${programId}`);
+          const lpSnap = await progRef.collection("lessons").get();
+          const done = lpSnap.docs.filter(
+            (d) =>
+              (d.data() as { lessonStatus?: string }).lessonStatus === "completed"
+          ).length;
+          percent =
+            totalLessons > 0
+              ? Math.round((done / totalLessons) * 100)
+              : aData.status === "completed"
+                ? 100
+                : 0;
 
-      // Tính % complete
-      const progRef = adminDb
-        .collection("progress")
-        .doc(`${aData.userId}_${programId}`);
-      const lpSnap = await progRef.collection("lessons").get();
-      const done = lpSnap.docs.filter(
-        (d) => (d.data() as { lessonStatus?: string }).lessonStatus === "completed"
-      ).length;
-      const percent = totalLessons > 0 ? Math.round((done / totalLessons) * 100) : 0;
+          // Tính điểm test trung bình
+          const scores: number[] = [];
+          for (const lp of lpSnap.docs) {
+            const tr = (
+              lp.data() as { testResult?: { score?: number; passed?: boolean } }
+            ).testResult;
+            if (tr && typeof tr.score === "number") scores.push(tr.score);
+          }
+          if (scores.length > 0) {
+            userAvg = Math.round(
+              scores.reduce((sum, b) => sum + b, 0) / scores.length
+            );
+            hasScore = true;
+          }
+        }
 
-      // Tính điểm test trung bình
-      const scores: number[] = [];
-      for (const lp of lpSnap.docs) {
-        const tr = (lp.data() as { testResult?: { score?: number; passed?: boolean } })
-          .testResult;
-        if (tr && typeof tr.score === "number") scores.push(tr.score);
-      }
-      const userAvg = scores.length > 0
-        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-        : 0;
-      if (scores.length > 0) {
-        totalScore += userAvg;
+        return {
+          userId: aData.userId,
+          status: aData.status,
+          percent,
+          userAvg,
+          hasScore,
+          userData,
+        };
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "not_started") notStarted++;
+      else if (r.status === "in_progress") inProgress++;
+      else if (r.status === "completed") completed++;
+
+      if (r.hasScore) {
+        totalScore += r.userAvg;
         scoreCount += 1;
       }
 
-      if (aData.status === "not_started") notStarted++;
-      else if (aData.status === "in_progress") inProgress++;
-      else if (aData.status === "completed") completed++;
-
-      if (aData.status !== "completed" && percent < 50) {
+      if (r.status !== "completed" && r.percent < 50) {
         atRisk.push({
-          userId: aData.userId,
-          displayName: userData?.displayName,
-          email: userData?.email ?? "",
+          userId: r.userId,
+          displayName: r.userData?.displayName,
+          email: r.userData?.email ?? "",
           status:
-            (aData.status as "not_started" | "in_progress" | "completed") ??
+            (r.status as "not_started" | "in_progress" | "completed") ??
             "not_started",
-          percent,
+          percent: r.percent,
         });
       }
     }

@@ -193,6 +193,22 @@ export const assignmentService = {
       userId,
       programIds,
     }),
+  /** Cập nhật trạng thái/tiến độ hoàn thành của phép gán */
+  updateStatus: (
+    userId: string,
+    programId: string,
+    status: "not_started" | "in_progress" | "completed"
+  ) =>
+    apiPut<{ updatedCount: number }>("/api/assignments", { userId, programId, status }),
+  /** Cập nhật trạng thái hoàn thành hàng loạt */
+  updateStatusBatch: (
+    items: Array<{
+      userId: string;
+      programId: string;
+      status: "not_started" | "in_progress" | "completed";
+    }>
+  ) =>
+    apiPut<{ updatedCount: number }>("/api/assignments", { items }),
 };
 
 // ─── My programs (employee) ──────────────────────────────────
@@ -226,9 +242,10 @@ export const progressService = {
   update: (
     programId: string,
     lessonId: string,
-    lessonStatus: "in_progress" | "completed"
+    lessonStatus: "in_progress" | "completed",
+    userId?: string
   ) =>
-    apiPost("/api/progress", { programId, lessonId, lessonStatus }),
+    apiPost("/api/progress", { programId, lessonId, lessonStatus, userId }),
 };
 
 // ─── Reports ─────────────────────────────────────────────────

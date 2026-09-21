@@ -5,9 +5,13 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Award,
+  CheckCircle,
   CheckCircle2,
   Circle,
+  Clock,
+  ChevronDown,
   Loader2,
+  RotateCcw,
   TrendingUp,
   XCircle,
 } from "lucide-react";
@@ -22,8 +26,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PageContainer } from "@/components/layout";
-import { reportService } from "@/services/training";
+import { assignmentService, progressService, reportService } from "@/services/training";
 import type { UserReportSummary } from "@/types/training";
 
 export default function AdminUserReportPage({
@@ -36,19 +48,54 @@ export default function AdminUserReportPage({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadData = async () => {
+    try {
+      const res = await reportService.userProgress(userId);
+      if (res.success) setSummary(res.data as UserReportSummary);
+      else setError((res as { error?: string }).error ?? "Lỗi tải");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await reportService.userProgress(userId);
-        if (res.success) setSummary(res.data as UserReportSummary);
-        else setError((res as { error?: string }).error ?? "Lỗi tải");
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setIsLoading(false);
-      }
-    })();
+    loadData();
   }, [userId]);
+
+  const handleUpdateProgramStatus = async (
+    programId: string,
+    status: "not_started" | "in_progress" | "completed"
+  ) => {
+    try {
+      const res = await assignmentService.updateStatus(userId, programId, status);
+      if (res.success) {
+        await loadData();
+      } else {
+        setError((res as { error?: string }).error ?? "Lỗi cập nhật trạng thái");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleUpdateLessonStatus = async (
+    programId: string,
+    lessonId: string,
+    lessonStatus: "in_progress" | "completed"
+  ) => {
+    try {
+      const res = await progressService.update(programId, lessonId, lessonStatus, userId);
+      if (res.success) {
+        await loadData();
+      } else {
+        setError((res as { error?: string }).error ?? "Lỗi cập nhật tiến độ bài học");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <PageContainer
@@ -107,21 +154,58 @@ export default function AdminUserReportPage({
                       <CardTitle>{p.programTitle}</CardTitle>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         <span>Trạng thái:</span>
-                        <Badge
-                          variant={
-                            p.status === "completed"
-                              ? "success"
-                              : p.status === "in_progress"
-                                ? "warning"
-                                : "secondary"
-                          }
-                        >
-                          {p.status === "completed"
-                            ? "Hoàn thành"
-                            : p.status === "in_progress"
-                              ? "Đang học"
-                              : "Chưa bắt đầu"}
-                        </Badge>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="cursor-pointer focus:outline-none"
+                              title="Bấm để cập nhật tiến độ"
+                            >
+                              <Badge
+                                variant={
+                                  p.status === "completed"
+                                    ? "success"
+                                    : p.status === "in_progress"
+                                      ? "warning"
+                                      : "secondary"
+                                }
+                                className="cursor-pointer flex items-center gap-1 hover:opacity-80 transition-opacity"
+                              >
+                                {p.status === "completed"
+                                  ? "Hoàn thành"
+                                  : p.status === "in_progress"
+                                    ? "Đang học"
+                                    : "Chưa bắt đầu"}
+                                <ChevronDown className="h-3 w-3 opacity-70" />
+                              </Badge>
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuLabel className="text-xs">Cập nhật tiến độ</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => handleUpdateProgramStatus(p.programId, "completed")}
+                              className="text-xs text-green-600 cursor-pointer"
+                            >
+                              <CheckCircle className="mr-2 h-3.5 w-3.5" />
+                              Đánh dấu hoàn thành
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleUpdateProgramStatus(p.programId, "in_progress")}
+                              className="text-xs text-orange-600 cursor-pointer"
+                            >
+                              <Clock className="mr-2 h-3.5 w-3.5" />
+                              Đang học
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleUpdateProgramStatus(p.programId, "not_started")}
+                              className="text-xs text-muted-foreground cursor-pointer"
+                            >
+                              <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                              Chưa học
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <span>·</span>
                         <span>
                           Điểm TB:{" "}
@@ -148,13 +232,41 @@ export default function AdminUserReportPage({
                           className="flex items-center justify-between rounded-md border p-2"
                         >
                           <div className="flex items-center gap-2">
-                            {l.lessonStatus === "completed" ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                            ) : l.lessonStatus === "in_progress" ? (
-                              <TrendingUp className="h-4 w-4 text-orange-600" />
-                            ) : (
-                              <Circle className="h-4 w-4 text-muted-foreground" />
-                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="cursor-pointer focus:outline-none"
+                                  title="Bấm để cập nhật trạng thái bài học"
+                                >
+                                  {l.lessonStatus === "completed" ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-600 hover:opacity-80" />
+                                  ) : l.lessonStatus === "in_progress" ? (
+                                    <TrendingUp className="h-4 w-4 text-orange-600 hover:opacity-80" />
+                                  ) : (
+                                    <Circle className="h-4 w-4 text-muted-foreground hover:opacity-80" />
+                                  )}
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuLabel className="text-xs">Trạng thái bài học</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleUpdateLessonStatus(p.programId, l.lessonId, "completed")}
+                                  className="text-xs text-green-600 cursor-pointer"
+                                >
+                                  <CheckCircle className="mr-2 h-3.5 w-3.5" />
+                                  Hoàn thành
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleUpdateLessonStatus(p.programId, l.lessonId, "in_progress")}
+                                  className="text-xs text-orange-600 cursor-pointer"
+                                >
+                                  <TrendingUp className="mr-2 h-3.5 w-3.5" />
+                                  Đang học
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                             <span className="text-sm">
                               #{l.order} · {l.title}
                             </span>

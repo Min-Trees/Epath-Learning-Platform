@@ -40,79 +40,95 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: str
       .where("userId", "==", userId)
       .get();
 
-    let totalAssigned = 0;
+    let totalAssigned = assignsSnap.size;
     let completed = 0;
     let inProgress = 0;
     let notStarted = 0;
     let totalScore = 0;
     let scoreCount = 0;
-    const programReports: UserReportSummary["programs"] = [];
 
-    for (const a of assignsSnap.docs) {
-      totalAssigned++;
-      const aData = a.data() as { programId: string; status: string };
-      if (aData.status === "completed") completed++;
-      else if (aData.status === "in_progress") inProgress++;
+    const programReports = await Promise.all(
+      assignsSnap.docs.map(async (a) => {
+        const aData = a.data() as { programId: string; status: string };
+        const progRef = adminDb.collection("programs").doc(aData.programId);
+        const lpRef = adminDb
+          .collection("progress")
+          .doc(`${userId}_${aData.programId}`);
+
+        const [progSnap, lessonsSnap, lpSnap] = await Promise.all([
+          progRef.get(),
+          progRef.collection("lessons").orderBy("order").get(),
+          lpRef.collection("lessons").get(),
+        ]);
+
+        const programTitle =
+          (progSnap.data() as { title?: string })?.title ?? "(không tiêu đề)";
+        const lpMap = new Map(
+          lpSnap.docs.map((d) => [
+            d.id,
+            d.data() as {
+              lessonStatus?: string;
+              testResult?: { score?: number; passed?: boolean; attemptCount?: number };
+            },
+          ])
+        );
+
+        const programScores: number[] = [];
+        const lessons = lessonsSnap.docs.map((l) => {
+          const lp = lpMap.get(l.id);
+          const tr = lp?.testResult;
+          if (tr && typeof tr.score === "number") programScores.push(tr.score);
+          return {
+            lessonId: l.id,
+            title: (l.data() as { title?: string }).title ?? "(không tiêu đề)",
+            order: (l.data() as { order?: number }).order ?? 0,
+            lessonStatus:
+              (lp?.lessonStatus as "not_started" | "in_progress" | "completed") ??
+              "not_started",
+            testPassed: tr?.passed,
+            testScore: tr?.score,
+            attemptCount: tr?.attemptCount,
+          };
+        });
+
+        const programAvg =
+          programScores.length > 0
+            ? Math.round(
+                programScores.reduce((a, b) => a + b, 0) / programScores.length
+              )
+            : 0;
+
+        const completedCount = lessons.filter(
+          (l) => l.lessonStatus === "completed"
+        ).length;
+        const percent =
+          lessons.length > 0
+            ? Math.round((completedCount / lessons.length) * 100)
+            : aData.status === "completed"
+              ? 100
+              : 0;
+
+        return {
+          programId: aData.programId,
+          programTitle,
+          status: aData.status as "not_started" | "in_progress" | "completed",
+          percent,
+          averageTestScore: programAvg,
+          lessons,
+          hasScore: programScores.length > 0,
+        };
+      })
+    );
+
+    for (const pr of programReports) {
+      if (pr.status === "completed") completed++;
+      else if (pr.status === "in_progress") inProgress++;
       else notStarted++;
 
-      const progRef = adminDb.collection("programs").doc(aData.programId);
-      const progSnap = await progRef.get();
-      const programTitle = (progSnap.data() as { title?: string })?.title ?? "(không tiêu đề)";
-      const lessonsSnap = await progRef.collection("lessons").orderBy("order").get();
-
-      const lpRef = adminDb
-        .collection("progress")
-        .doc(`${userId}_${aData.programId}`);
-      const lpSnap = await lpRef.collection("lessons").get();
-      const lpMap = new Map(
-        lpSnap.docs.map((d) => [d.id, d.data() as { lessonStatus?: string; testResult?: { score?: number; passed?: boolean; attemptCount?: number } }])
-      );
-
-      const programScores: number[] = [];
-      const lessons = lessonsSnap.docs.map((l) => {
-        const lp = lpMap.get(l.id);
-        const tr = lp?.testResult;
-        if (tr && typeof tr.score === "number") programScores.push(tr.score);
-        return {
-          lessonId: l.id,
-          title: (l.data() as { title?: string }).title ?? "(không tiêu đề)",
-          order: (l.data() as { order?: number }).order ?? 0,
-          lessonStatus:
-            (lp?.lessonStatus as "not_started" | "in_progress" | "completed") ??
-            "not_started",
-          testPassed: tr?.passed,
-          testScore: tr?.score,
-          attemptCount: tr?.attemptCount,
-        };
-      });
-
-      const programAvg =
-        programScores.length > 0
-          ? Math.round(
-              programScores.reduce((a, b) => a + b, 0) / programScores.length
-            )
-          : 0;
-      if (programScores.length > 0) {
-        totalScore += programAvg;
+      if (pr.hasScore) {
+        totalScore += pr.averageTestScore;
         scoreCount += 1;
       }
-
-      const completedCount = lessons.filter(
-        (l) => l.lessonStatus === "completed"
-      ).length;
-      const percent =
-        lessons.length > 0
-          ? Math.round((completedCount / lessons.length) * 100)
-          : 0;
-
-      programReports.push({
-        programId: aData.programId,
-        programTitle,
-        status: aData.status as "not_started" | "in_progress" | "completed",
-        percent,
-        averageTestScore: programAvg,
-        lessons,
-      });
     }
 
     const summary: UserReportSummary = {

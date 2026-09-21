@@ -29,6 +29,7 @@ import {
   UserX,
   UserPlus,
   UserCog,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -87,6 +89,7 @@ function EmployeeItem({
   programAssigns,
   program,
   onUnassign,
+  onUpdateStatus,
   selectedItems,
   onToggleSelect,
 }: {
@@ -94,6 +97,11 @@ function EmployeeItem({
   programAssigns: Assignment[];
   program: Program;
   onUnassign: (userId: string, programId: string) => void;
+  onUpdateStatus: (
+    userId: string,
+    programId: string,
+    status: "not_started" | "in_progress" | "completed"
+  ) => void;
   selectedItems: Set<string>;
   onToggleSelect: (key: string) => void;
 }) {
@@ -115,29 +123,76 @@ function EmployeeItem({
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm truncate">{employee.displayName}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-sm truncate">{employee.displayName}</p>
+            {employee.role === "manager" && (
+              <Badge
+                variant="outline"
+                className="text-[10px] px-1.5 py-0 border-blue-500/50 text-blue-600 bg-blue-50/50 dark:bg-blue-950/50"
+              >
+                Quản lý
+              </Badge>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground truncate">{employee.email}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {assignment && (
           <>
-            <Badge
-              variant={
-                assignment.status === "completed"
-                  ? "success"
-                  : assignment.status === "in_progress"
-                  ? "warning"
-                  : "secondary"
-              }
-              className="text-xs hidden sm:inline-flex"
-            >
-              {assignment.status === "completed"
-                ? "Hoàn thành"
-                : assignment.status === "in_progress"
-                ? "Đang học"
-                : "Chưa học"}
-            </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="cursor-pointer focus:outline-none"
+                  title="Bấm để cập nhật tiến độ"
+                >
+                  <Badge
+                    variant={
+                      assignment.status === "completed"
+                        ? "success"
+                        : assignment.status === "in_progress"
+                        ? "warning"
+                        : "secondary"
+                    }
+                    className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer"
+                  >
+                    {assignment.status === "completed"
+                      ? "Hoàn thành"
+                      : assignment.status === "in_progress"
+                      ? "Đang học"
+                      : "Chưa học"}
+                    <ChevronDown className="h-3 w-3 opacity-70" />
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="text-xs">Cập nhật tiến độ</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => onUpdateStatus(employee.id, program.id, "completed")}
+                  className="text-xs text-green-600 cursor-pointer"
+                >
+                  <CheckCircle className="mr-2 h-3.5 w-3.5" />
+                  Đánh dấu hoàn thành
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onUpdateStatus(employee.id, program.id, "in_progress")}
+                  className="text-xs text-orange-600 cursor-pointer"
+                >
+                  <Clock className="mr-2 h-3.5 w-3.5" />
+                  Đang học
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onUpdateStatus(employee.id, program.id, "not_started")}
+                  className="text-xs text-muted-foreground cursor-pointer"
+                >
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  Chưa học
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <span className="text-xs text-muted-foreground hidden md:inline">
               {assignment.assignedAt
                 ? new Date(assignment.assignedAt).toLocaleDateString("vi-VN")
@@ -163,6 +218,7 @@ function ProgramItemInEmployee({
   program,
   assignment,
   onUnassign,
+  onUpdateStatus,
   selectedItems,
   onToggleSelect,
   userId,
@@ -170,6 +226,11 @@ function ProgramItemInEmployee({
   program: Program;
   assignment?: Assignment;
   onUnassign: (userId: string, programId: string) => void;
+  onUpdateStatus: (
+    userId: string,
+    programId: string,
+    status: "not_started" | "in_progress" | "completed"
+  ) => void;
   selectedItems: Set<string>;
   onToggleSelect: (key: string) => void;
   userId: string;
@@ -202,22 +263,59 @@ function ProgramItemInEmployee({
       <div className="flex items-center gap-2 shrink-0">
         {assignment && (
           <>
-            <Badge
-              variant={
-                assignment.status === "completed"
-                  ? "success"
-                  : assignment.status === "in_progress"
-                  ? "warning"
-                  : "secondary"
-              }
-              className="text-xs hidden sm:inline-flex"
-            >
-              {assignment.status === "completed"
-                ? "Hoàn thành"
-                : assignment.status === "in_progress"
-                ? "Đang học"
-                : "Chưa học"}
-            </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="cursor-pointer focus:outline-none"
+                  title="Bấm để cập nhật tiến độ"
+                >
+                  <Badge
+                    variant={
+                      assignment.status === "completed"
+                        ? "success"
+                        : assignment.status === "in_progress"
+                        ? "warning"
+                        : "secondary"
+                    }
+                    className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer"
+                  >
+                    {assignment.status === "completed"
+                      ? "Hoàn thành"
+                      : assignment.status === "in_progress"
+                      ? "Đang học"
+                      : "Chưa học"}
+                    <ChevronDown className="h-3 w-3 opacity-70" />
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="text-xs">Cập nhật tiến độ</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => onUpdateStatus(userId, program.id, "completed")}
+                  className="text-xs text-green-600 cursor-pointer"
+                >
+                  <CheckCircle className="mr-2 h-3.5 w-3.5" />
+                  Đánh dấu hoàn thành
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onUpdateStatus(userId, program.id, "in_progress")}
+                  className="text-xs text-orange-600 cursor-pointer"
+                >
+                  <Clock className="mr-2 h-3.5 w-3.5" />
+                  Đang học
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onUpdateStatus(userId, program.id, "not_started")}
+                  className="text-xs text-muted-foreground cursor-pointer"
+                >
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  Chưa học
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <span className="text-xs text-muted-foreground hidden md:inline">
               {assignment.assignedAt
                 ? new Date(assignment.assignedAt).toLocaleDateString("vi-VN")
@@ -348,14 +446,14 @@ function AdminAssignmentsPageInner() {
     setCurrentPage(1);
   }, [searchQuery, departmentFilter, statusFilter, viewMode]);
 
-  // Filter users based on role
+  // Filter users based on role: Manager thấy nhân viên thuộc quyền, Admin thấy cả nhân viên và quản lý
   const users = useMemo(() => {
     if (user?.role === "manager") {
       return allUsers.filter(
         (u) => u.role === "employee" && u.managerId === user.id
       );
     }
-    return allUsers.filter((u) => u.role === "employee");
+    return allUsers.filter((u) => u.role === "employee" || u.role === "manager");
   }, [allUsers, user]);
 
   // Get unique departments
@@ -661,6 +759,79 @@ function AdminAssignmentsPageInner() {
     }
   };
 
+  const handleUpdateStatus = async (
+    userId: string,
+    programId: string,
+    status: "not_started" | "in_progress" | "completed"
+  ) => {
+    try {
+      const res = await assignmentService.updateStatus(userId, programId, status);
+      if (res.success) {
+        const label =
+          status === "completed"
+            ? "Hoàn thành"
+            : status === "in_progress"
+            ? "Đang học"
+            : "Chưa học";
+        setSuccess(`Đã cập nhật trạng thái thành "${label}"`);
+        await fetchData();
+        queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
+      } else {
+        setError((res as { error?: string }).error ?? "Lỗi cập nhật trạng thái");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleBulkUpdateStatus = async (
+    status: "not_started" | "in_progress" | "completed"
+  ) => {
+    if (selectedItems.size === 0) return;
+    const count = selectedItems.size;
+    const label =
+      status === "completed"
+        ? "Hoàn thành"
+        : status === "in_progress"
+        ? "Đang học"
+        : "Chưa học";
+
+    if (
+      !window.confirm(
+        `Cập nhật trạng thái thành "${label}" cho ${count} phép gán đã chọn?`
+      )
+    )
+      return;
+
+    setIsLoading(true);
+    setError(null);
+
+    const items = Array.from(selectedItems).map((key) => {
+      const [userId, programId] = key.split("_");
+      return {
+        userId,
+        programId,
+        status,
+      };
+    });
+
+    try {
+      const res = await assignmentService.updateStatusBatch(items);
+      if (res.success) {
+        setSelectedItems(new Set());
+        await fetchData();
+        queryClient.invalidateQueries({ queryKey: ["me", "programs"] });
+        setSuccess(`Đã cập nhật trạng thái thành "${label}" cho ${count} phép gán`);
+      } else {
+        setError((res as { error?: string }).error ?? "Lỗi cập nhật");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Manager assignment
   const openManagerDialogHandler = (program: Program) => {
     setSelectedProgramForManager(program);
@@ -747,15 +918,27 @@ function AdminAssignmentsPageInner() {
       actions={
         <div className="flex gap-2 flex-wrap">
           {selectedItems.size > 0 && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleBulkUnassign}
-              disabled={isLoading}
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              Hủy gán ({selectedItems.size})
-            </Button>
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => handleBulkUpdateStatus("completed")}
+                disabled={isLoading}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <CheckCircle2 className="mr-1 h-4 w-4" />
+                Hoàn thành ({selectedItems.size})
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBulkUnassign}
+                disabled={isLoading}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                Hủy gán ({selectedItems.size})
+              </Button>
+            </>
           )}
           <Button
             variant="outline"
@@ -1254,6 +1437,7 @@ function AdminAssignmentsPageInner() {
                               programAssigns={filteredAssigns}
                               program={program}
                               onUnassign={handleUnassign}
+                              onUpdateStatus={handleUpdateStatus}
                               selectedItems={selectedItems}
                               onToggleSelect={toggleSelect}
                             />
@@ -1440,6 +1624,7 @@ function AdminAssignmentsPageInner() {
                               program={program}
                               assignment={assignment}
                               onUnassign={handleUnassign}
+                              onUpdateStatus={handleUpdateStatus}
                               selectedItems={selectedItems}
                               onToggleSelect={toggleSelect}
                               userId={employee.id}

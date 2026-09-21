@@ -143,11 +143,11 @@ export default function EmployeeLessonPage({
     load();
   }, [load]);
 
-  // Đánh dấu in_progress khi mở lesson.
+  // Đánh dấu in_progress khi mở lesson (chỉ chạy sau khi load xong và chưa hoàn thành).
   // Nếu 403 (admin chưa gán chương trình), ta KHÔNG spam console mà bật
   // banner và retry sau 30s — tránh 6 lần 403 liên tiếp như trước.
   useEffect(() => {
-    if (isCompleted) return;
+    if (isLoading || isCompleted) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -170,7 +170,7 @@ export default function EmployeeLessonPage({
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [programId, lessonId, isCompleted]);
+  }, [programId, lessonId, isLoading, isCompleted]);
 
   // Tự động đánh dấu hoàn thành khi đã xem hết nội dung
   const handleAutoComplete = useCallback(async () => {

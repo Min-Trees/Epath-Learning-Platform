@@ -57,6 +57,7 @@ export function SecureVideoPlayer({
   const tokenRef = useRef<string | null>(null);
   const tokenExpiryRef = useRef<number>(0);
   const fetchingRef = useRef(false);
+  const hasCompletedRef = useRef(false);
 
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export function SecureVideoPlayer({
     // Reset state when lesson changes
     tokenRef.current = null;
     tokenExpiryRef.current = 0;
+    hasCompletedRef.current = false;
     setStreamUrl(null);
     setHasPlayedOnce(false);
     setError(null);
@@ -290,7 +292,15 @@ export function SecureVideoPlayer({
     }
     lastTimeRef.current = cur;
     void progress.writeProgress(cur, dur);
-  }, [progress, requireFullWatch]);
+
+    // Kích hoạt hoàn thành khi xem hết video (>= 95% thời lượng hoặc còn dưới 1 giây)
+    if (dur > 0 && (cur >= dur - 1 || (cur / dur) >= 0.95)) {
+      if (!hasCompletedRef.current) {
+        hasCompletedRef.current = true;
+        onComplete?.();
+      }
+    }
+  }, [progress, requireFullWatch, onComplete]);
 
   const onPlay = useCallback(() => {
     setHasPlayedOnce(true);
@@ -301,8 +311,9 @@ export function SecureVideoPlayer({
     const v = videoRef.current;
     if (!v) return;
     void progress.writeProgress(v.duration || lastTimeRef.current, v.duration || 0);
-    if (onComplete) {
-      onComplete();
+    if (!hasCompletedRef.current) {
+      hasCompletedRef.current = true;
+      onComplete?.();
     }
   }, [progress, onComplete]);
 

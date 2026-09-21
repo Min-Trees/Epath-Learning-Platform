@@ -168,3 +168,161 @@ export async function POST(req: NextRequest) {
     return bad(e instanceof Error ? e.message : "Internal error", 500);
   }
 }
+
+/**
+ * PUT /api/assignments
+ * Body:
+ *  - Single: { userId: string, programId: string, status: "not_started" | "in_progress" | "completed" }
+ *  - Batch: { items: Array<{ userId: string, programId: string, status: "not_started" | "in_progress" | "completed" }> }
+ * Cho phép Admin (hoặc Manager đối với nhân viên thuộc quyền) cập nhật tiến độ hoàn thành.
+ */
+export async function PUT(req: NextRequest) {
+  try {
+    const me = await getAuthUser(req);
+    if (!me) return bad("Unauthorized", 401);
+    if (!isAdmin(me) && !isManager(me)) return bad("Forbidden", 403);
+
+    const body = (await req.json().catch(() => ({}))) as {
+      userId?: string;
+      programId?: string;
+      status?: "not_started" | "in_progress" | "completed";
+      items?: Array<{
+        userId: string;
+        programId: string;
+        status: "not_started" | "in_progress" | "completed";
+      }>;
+    };
+
+    let itemsToUpdate: Array<{
+      userId: string;
+      programId: string;
+      status: "not_started" | "in_progress" | "completed";
+    }> = [];
+
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      itemsToUpdate = body.items;
+    } else if (body.userId && body.programId && body.status) {
+      itemsToUpdate = [
+        {
+          userId: body.userId,
+          programId: body.programId,
+          status: body.status,
+        },
+      ];
+    } else {
+      return bad("Thiếu thông tin cập nhật (userId, programId, status hoặc items)");
+    }
+
+    // Manager validation: kiểm tra nhân viên thuộc quyền
+    if (!isAdmin(me)) {
+      const usersSnap = await adminDb
+        .collection("users")
+        .where("managerId", "==", me.uid)
+        .get();
+      const managedUserIds = new Set(usersSnap.docs.map((d) => d.id));
+      for (const item of itemsToUpdate) {
+        if (!managedUserIds.has(item.userId)) {
+          return bad(`Bạn không có quyền quản lý người dùng: ${item.userId}`, 403);
+        }
+      }
+    }
+
+    const validStatuses = ["not_started", "in_progress", "completed"];
+    const updatedUsers = new Set<string>();
+
+    for (const item of itemsToUpdate) {
+      if (!validStatuses.includes(item.status)) continue;
+      const docId = `${item.userId}_${item.programId}`;
+      const assignRef = adminDb.collection("assignments").doc(docId);
+      const progRef = adminDb.collection("progress").doc(docId);
+
+      const assignSnap = await assignRef.get();
+      if (!assignSnap.exists) {
+        // Nếu chưa có assignment, tạo mới
+        await assignRef.set({
+          userId: item.userId,
+          programId: item.programId,
+          status: item.status,
+          assignedAt: new Date(),
+          assignedBy: me.uid,
+          ...(item.status === "completed" ? { completedAt: new Date() } : {}),
+          ...(item.status === "in_progress" ? { startedAt: new Date() } : {}),
+        });
+      } else {
+        await assignRef.update({
+          status: item.status,
+          updatedAt: new Date(),
+          ...(item.status === "completed" ? { completedAt: new Date() } : { completedAt: null }),
+          ...(item.status === "in_progress" ? { startedAt: new Date() } : {}),
+        });
+      }
+
+      await progRef.set(
+        {
+          userId: item.userId,
+          programId: item.programId,
+          status: item.status,
+          updatedAt: new Date(),
+          ...(item.status === "completed" ? { completedAt: new Date() } : { completedAt: null }),
+          ...(item.status === "in_progress" ? { startedAt: new Date() } : {}),
+        },
+        { merge: true }
+      );
+
+      // Nếu trạng thái là completed: tự động cập nhật tất cả lessons của program thành completed
+      if (item.status === "completed") {
+        const lessonsSnap = await adminDb
+          .collection("programs")
+          .doc(item.programId)
+          .collection("lessons")
+          .get();
+
+        if (!lessonsSnap.empty) {
+          const batch = adminDb.batch();
+          for (const lDoc of lessonsSnap.docs) {
+            const lpRef = progRef.collection("lessons").doc(lDoc.id);
+            batch.set(
+              lpRef,
+              {
+                lessonStatus: "completed",
+                updatedAt: new Date(),
+                completedAt: new Date(),
+              },
+              { merge: true }
+            );
+          }
+          await batch.commit();
+        }
+      } else if (item.status === "not_started") {
+        // Reset lessons
+        const lpSnap = await progRef.collection("lessons").get();
+        if (!lpSnap.empty) {
+          const batch = adminDb.batch();
+          for (const lpDoc of lpSnap.docs) {
+            batch.set(
+              lpDoc.ref,
+              {
+                lessonStatus: "not_started",
+                updatedAt: new Date(),
+                completedAt: null,
+              },
+              { merge: true }
+            );
+          }
+          await batch.commit();
+        }
+      }
+
+      updatedUsers.add(item.userId);
+    }
+
+    if (updatedUsers.size > 0) {
+      invalidateUsers(Array.from(updatedUsers));
+    }
+
+    return ok({ updatedCount: itemsToUpdate.length });
+  } catch (e) {
+    console.error("[api/assignments][PUT] error:", e);
+    return bad(e instanceof Error ? e.message : "Internal error", 500);
+  }
+}

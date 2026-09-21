@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { getAuthUser, isAdmin, ok, bad } from "@/lib/api-auth";
+import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
 import { invalidateUser } from "@/lib/cache/program-cache";
 
 /**
@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
       programId?: string;
       lessonId?: string;
       lessonStatus?: "in_progress" | "completed";
+      userId?: string;
     };
     if (!body.programId || !body.lessonId || !body.lessonStatus) {
       return bad("Thiếu programId/lessonId/lessonStatus");
@@ -72,24 +73,63 @@ export async function POST(req: NextRequest) {
       return bad("lessonStatus không hợp lệ");
     }
 
+    // Nếu truyền userId: phải là Admin hoặc Manager quản lý user đó
+    let targetUid = me.uid;
+    const isExplicitAdminAction = Boolean(body.userId && body.userId !== me.uid);
+    if (isExplicitAdminAction) {
+      if (!isAdmin(me) && !isManager(me)) {
+        return bad("Forbidden", 403);
+      }
+      if (isManager(me) && !isAdmin(me)) {
+        const userSnap = await adminDb.collection("users").doc(body.userId!).get();
+        if ((userSnap.data() as { managerId?: string } | undefined)?.managerId !== me.uid) {
+          return bad("Bạn không có quyền quản lý người dùng này", 403);
+        }
+      }
+      targetUid = body.userId!;
+    }
+
     const assignRef = adminDb
       .collection("assignments")
-      .doc(`${me.uid}_${body.programId}`);
-    const assignSnap = await assignRef.get();
-    if (!assignSnap.exists) return bad("Bạn chưa được gán chương trình này", 403);
+      .doc(`${targetUid}_${body.programId}`);
+    let assignSnap = await assignRef.get();
+    if (!assignSnap.exists) {
+      if (isAdmin(me) || me.role === "manager") {
+        await assignRef.set({
+          userId: targetUid,
+          programId: body.programId,
+          status: "not_started",
+          assignedAt: new Date(),
+          assignedBy: me.uid,
+        });
+        assignSnap = await assignRef.get();
+      } else {
+        return bad("Bạn chưa được gán chương trình này", 403);
+      }
+    }
 
     const progRef = adminDb
       .collection("progress")
-      .doc(`${me.uid}_${body.programId}`);
+      .doc(`${targetUid}_${body.programId}`);
     const lessonProgRef = progRef.collection("lessons").doc(body.lessonId);
     const lpSnap = await lessonProgRef.get();
+    const lpData = lpSnap.data() as { lessonStatus?: string; completedAt?: Date } | undefined;
+    const isAlreadyCompleted = lpData?.lessonStatus === "completed";
+
+    // Nếu học viên xem lại bài đã hoàn thành và gửi in_progress, giữ nguyên trạng thái hoàn thành
+    if (!isExplicitAdminAction && isAlreadyCompleted && body.lessonStatus === "in_progress") {
+      return ok({ message: "Lesson already completed, status unchanged" });
+    }
+
+    const currentAssignStatus = (assignSnap.data() as { status?: string } | undefined)?.status;
     await progRef.set(
       {
-        userId: me.uid,
+        userId: targetUid,
         programId: body.programId,
         status:
-          (assignSnap.data() as { status?: string } | undefined)?.status ??
-          "in_progress",
+          currentAssignStatus === "completed"
+            ? "completed"
+            : (currentAssignStatus ?? "in_progress"),
         startedAt:
           (assignSnap.data() as { startedAt?: Date } | undefined)?.startedAt ??
           new Date(),
@@ -101,6 +141,9 @@ export async function POST(req: NextRequest) {
       {
         lessonStatus: body.lessonStatus,
         updatedAt: new Date(),
+        ...(body.lessonStatus === "completed"
+          ? { completedAt: lpData?.completedAt ?? new Date() }
+          : {}),
         ...(body.lessonStatus === "in_progress" && !lpSnap.exists
           ? { startedAt: new Date() }
           : {}),
@@ -142,7 +185,7 @@ export async function POST(req: NextRequest) {
 
     // Progress thay đổi → cache list "chương trình của tôi" của user đã stale
     // (vì có hiển thị % hoàn thành và trạng thái in_progress/completed).
-    invalidateUser(me.uid);
+    invalidateUser(targetUid);
 
     return ok();
   } catch (e) {
