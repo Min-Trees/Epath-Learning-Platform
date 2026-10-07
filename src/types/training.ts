@@ -242,6 +242,9 @@ export interface UserReportSummary {
   userId: string;
   displayName?: string;
   email: string;
+  department?: string;
+  position?: string;
+  managerName?: string;
   totalAssigned: number;
   completed: number;
   inProgress: number;

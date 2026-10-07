@@ -15,25 +15,38 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: str
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
     const { userId } = await ctx.params;
-    if (!isAdmin(me) && userId !== me.uid) {
-      // Manager: kiểm tra nhân viên thuộc quyền
+    if (!isAdmin(me) && me.role !== "hr" && userId !== me.uid) {
+      // Manager: bắt buộc chỉ xem nhân viên thuộc quyền quản lý của mình
       if (isManager(me)) {
         const targetUserSnap = await adminDb.collection("users").doc(userId).get();
         if (!targetUserSnap.exists) return bad("User not found", 404);
         const targetUserData = targetUserSnap.data() as { managerId?: string };
         if (targetUserData.managerId !== me.uid) {
-          return bad("Forbidden - bạn không có quyền xem báo cáo của nhân viên này", 403);
+          return bad("Forbidden - bạn chỉ có quyền xem tiến độ của nhân viên thuộc sự quản lý của mình", 403);
         }
       } else {
-        return bad("Forbidden", 403);
+        return bad("Forbidden - bạn không có quyền xem báo cáo của nhân viên này", 403);
       }
     }
 
     const userSnap = await adminDb.collection("users").doc(userId).get();
-    const userData = userSnap.data() as
-      | { displayName?: string; email?: string }
-      | undefined;
     if (!userSnap.exists) return bad("User not found", 404);
+    const userData = userSnap.data() as
+      | { displayName?: string; email?: string; department?: string; position?: string; managerId?: string }
+      | undefined;
+
+    let managerName: string | undefined = undefined;
+    if (userData?.managerId) {
+      try {
+        const mgrSnap = await adminDb.collection("users").doc(userData.managerId).get();
+        if (mgrSnap.exists) {
+          const mgrData = mgrSnap.data() as { displayName?: string; email?: string };
+          managerName = mgrData.displayName || mgrData.email;
+        }
+      } catch {
+        // ignore
+      }
+    }
 
     const assignsSnap = await adminDb
       .collection("assignments")
@@ -135,6 +148,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: str
       userId,
       displayName: userData?.displayName,
       email: userData?.email ?? "",
+      department: userData?.department,
+      position: userData?.position,
+      managerName,
       totalAssigned,
       completed,
       inProgress,

@@ -58,18 +58,18 @@ export async function GET(req: NextRequest) {
   try {
     const me = await getAuthUser(req);
     if (!me) return bad("Unauthorized", 401);
-    if (!isManagerOrAdmin(me)) {
-      return bad("Forbidden - chỉ admin hoặc manager mới có quyền", 403);
+    if (!isManagerOrAdmin(me) && me.role !== "hr") {
+      return bad("Forbidden - chỉ admin, quản lý hoặc HR mới có quyền", 403);
     }
 
     const { searchParams } = new URL(req.url);
     const department = searchParams.get("department") || undefined;
 
     // Quyết định scope:
-    // - manager mặc định chỉ thấy NV thuộc quyền (managerId == me.uid)
-    // - admin mặc định thấy tất cả; có thể ?scope=managed để giới hạn về NV do mình quản lý
+    // - manager: bắt buộc chỉ thấy NV thuộc quyền quản lý trực tiếp (managerId === me.uid)
+    // - admin / HR: mặc định thấy tất cả; có thể ?scope=managed để giới hạn về NV do mình quản lý
     let targetUserIds: string[] | null = null;
-    if (isAdmin(me)) {
+    if (isAdmin(me) || me.role === "hr") {
       if (searchParams.get("scope") === "managed") {
         const snap = await adminDb
           .collection("users")

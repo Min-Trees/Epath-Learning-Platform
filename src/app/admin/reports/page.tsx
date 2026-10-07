@@ -13,6 +13,8 @@ import {
   UserCheck,
   Mail,
   RefreshCw,
+  FileDown,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,11 +31,19 @@ import {
 import { PageContainer } from "@/components/layout";
 import { useAuth } from "@/hooks";
 import { programService, reportService } from "@/services/training";
+import {
+  generateEmployeeProgressHtml,
+  generateTeamProgressHtml,
+} from "@/lib/pdf-report-generator";
+import { PdfExportDialog } from "@/components/reports/pdf-export-dialog";
 import type {
   Program,
   ProgramReportSummary,
   TeamReportSummary,
+  TeamMemberProgress,
+  UserReportSummary,
 } from "@/types/training";
+import type { User } from "@/types";
 
 type TabKey = "team" | "program";
 
@@ -194,6 +204,7 @@ function AdminReportsPageInner() {
           isFetching={isFetchingTeam}
           isManager={isManager}
           isAdmin={isAdmin}
+          currentUser={user}
           onRefresh={() => {
             void refetchTeam();
           }}
@@ -227,6 +238,7 @@ function TeamReportView({
   isFetching,
   isManager,
   isAdmin,
+  currentUser,
   onRefresh,
 }: {
   summary: TeamReportSummary | null | undefined;
@@ -235,8 +247,32 @@ function TeamReportView({
   isFetching: boolean;
   isManager: boolean;
   isAdmin: boolean;
+  currentUser?: User | null;
   onRefresh: () => void;
 }) {
+  const [isTeamPdfOpen, setIsTeamPdfOpen] = useState(false);
+  const [selectedMemberSummary, setSelectedMemberSummary] = useState<UserReportSummary | null>(null);
+  const [isMemberPdfOpen, setIsMemberPdfOpen] = useState(false);
+  const [loadingMemberId, setLoadingMemberId] = useState<string | null>(null);
+
+  const handleExportSingleMember = async (member: TeamMemberProgress) => {
+    try {
+      setLoadingMemberId(member.userId);
+      const res = await reportService.userProgress(member.userId);
+      if (res.success && res.data) {
+        setSelectedMemberSummary(res.data as UserReportSummary);
+        setIsMemberPdfOpen(true);
+      } else {
+        alert("Không thể tải chi tiết tiến độ của nhân viên: " + ((res as { error?: string }).error ?? "Lỗi không xác định"));
+      }
+    } catch (err) {
+      console.error("Lỗi tải tiến độ nhân viên:", err);
+      alert("Đã xảy ra lỗi khi lấy dữ liệu báo cáo của nhân viên.");
+    } finally {
+      setLoadingMemberId(null);
+    }
+  };
+
   if (error) {
     return (
       <Alert variant="destructive">
@@ -275,67 +311,32 @@ function TeamReportView({
               ? "Tổng quan nhân viên (toàn hệ thống)"
               : "Tổng quan nhân viên"}
         </h2>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={isFetching}
-        >
-          <RefreshCw
-            className={"mr-1 h-4 w-4 " + (isFetching ? "animate-spin" : "")}
-          />
-          {isFetching ? "Đang cập nhật..." : "Làm mới"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {summary && summary.members.length > 0 && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setIsTeamPdfOpen(true)}
+              className="gap-1.5 shadow-sm"
+              title="Xuất báo cáo PDF tổng hợp danh sách nhân viên"
+            >
+              <FileDown className="h-4 w-4" />
+              Xuất PDF danh sách
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={isFetching}
+          >
+            <RefreshCw
+              className={"mr-1 h-4 w-4 " + (isFetching ? "animate-spin" : "")}
+            />
+            {isFetching ? "Đang cập nhật..." : "Làm mới"}
+          </Button>
+        </div>
       </div>
-
-      {/* Top stats */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={Users}
-          label="Số nhân viên"
-          value={summary.totalEmployees}
-          color="text-blue-600"
-        />
-        <StatCard
-          icon={BarChart3}
-          label="CT đã gán"
-          value={summary.totalAssigned}
-          color="text-indigo-600"
-        />
-        <StatCard
-          icon={TrendingUp}
-          label="Đang học"
-          value={summary.inProgress}
-          color="text-orange-600"
-        />
-        <StatCard
-          icon={Award}
-          label="Tỷ lệ hoàn thành"
-          value={`${summary.completionRate}%`}
-          color="text-green-600"
-        />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Phân bổ trạng thái học tập
-          </CardTitle>
-          <CardDescription>
-            Tổng quan {summary.totalAssigned} chương trình đã gán cho {summary.totalEmployees} nhân viên
-            {typeof summary.averageTestScore === "number" && summary.averageTestScore > 0 && (
-              <> · Điểm test TB: <strong>{summary.averageTestScore}%</strong></>
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Phase label="Chưa bắt đầu" value={summary.notStarted} total={summary.totalAssigned} variant="secondary" />
-            <Phase label="Đang học" value={summary.inProgress} total={summary.totalAssigned} variant="warning" />
-            <Phase label="Hoàn thành" value={summary.completed} total={summary.totalAssigned} variant="success" />
-          </div>
-        </CardContent>
-      </Card>
 
       {summary.members.length === 0 ? (
         <Alert>
@@ -347,10 +348,12 @@ function TeamReportView({
         </Alert>
       ) : (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Danh sách nhân viên</CardTitle>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">
+              Danh sách tiến độ nhân viên ({summary.members.length})
+            </CardTitle>
             <CardDescription>
-              Bấm vào từng nhân viên để xem chi tiết tiến độ từng chương trình
+              Theo dõi chi tiết tiến độ học tập và xuất báo cáo PDF cho từng nhân viên
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -407,8 +410,8 @@ function TeamReportView({
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0 pl-2">
-                      <div className="hidden sm:block w-40">
+                    <div className="flex items-center gap-2 shrink-0 pl-2">
+                      <div className="hidden sm:block w-36">
                         <Progress value={m.overallPercent} className="h-2" />
                         <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
                           <span>{m.completed}/{m.totalAssigned} HT</span>
@@ -437,6 +440,25 @@ function TeamReportView({
                           </span>
                         )}
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs gap-1 hover:bg-primary hover:text-primary-foreground ml-1"
+                        title="Xuất file PDF tiến độ của nhân viên này"
+                        disabled={loadingMemberId === m.userId}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleExportSingleMember(m);
+                        }}
+                      >
+                        {loadingMemberId === m.userId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <FileDown className="h-3.5 w-3.5 text-primary" />
+                        )}
+                        <span className="hidden sm:inline">PDF</span>
+                      </Button>
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
                   </Link>
@@ -445,6 +467,40 @@ function TeamReportView({
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {summary && isTeamPdfOpen && (
+        <PdfExportDialog
+          isOpen={isTeamPdfOpen}
+          onClose={() => setIsTeamPdfOpen(false)}
+          title={isManager ? "Báo cáo tiến độ nhân viên thuộc quyền quản lý" : "Báo cáo tổng hợp tiến độ nhân viên"}
+          subtitle={`Quy mô: ${summary.totalEmployees} nhân sự · Tỷ lệ hoàn thành: ${summary.completionRate}%`}
+          htmlContent={generateTeamProgressHtml(summary, {
+            currentUserName: currentUser?.displayName || currentUser?.email || undefined,
+            currentUserRole: currentUser?.role,
+            managerName: currentUser?.displayName || currentUser?.email || undefined,
+            isManager,
+          })}
+          fileName={`Bao-cao-tong-hop-tien-do-${isManager ? "nhom-quan-ly" : "toan-he-thong"}`}
+        />
+      )}
+
+      {selectedMemberSummary && isMemberPdfOpen && (
+        <PdfExportDialog
+          isOpen={isMemberPdfOpen}
+          onClose={() => {
+            setIsMemberPdfOpen(false);
+            setSelectedMemberSummary(null);
+          }}
+          title={`Báo cáo tiến độ: ${selectedMemberSummary.displayName || selectedMemberSummary.email}`}
+          subtitle={`Phòng ban: ${selectedMemberSummary.department || "Chưa phân bổ"} · Đã hoàn thành: ${selectedMemberSummary.completed}/${selectedMemberSummary.totalAssigned} chương trình`}
+          htmlContent={generateEmployeeProgressHtml(selectedMemberSummary, {
+            currentUserName: currentUser?.displayName || currentUser?.email || undefined,
+            currentUserRole: currentUser?.role,
+            managerName: selectedMemberSummary.managerName || (isManager ? currentUser?.displayName || currentUser?.email : undefined),
+          })}
+          fileName={`Bao-cao-tien-do-${selectedMemberSummary.displayName ? selectedMemberSummary.displayName.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, "_") : selectedMemberSummary.userId}`}
+        />
       )}
     </div>
   );

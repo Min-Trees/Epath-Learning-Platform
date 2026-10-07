@@ -14,6 +14,7 @@ import {
   RotateCcw,
   TrendingUp,
   XCircle,
+  FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +36,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PageContainer } from "@/components/layout";
+import { useAuth } from "@/hooks";
 import { assignmentService, progressService, reportService } from "@/services/training";
+import {
+  generateEmployeeProgressHtml,
+} from "@/lib/pdf-report-generator";
+import { PdfExportDialog } from "@/components/reports/pdf-export-dialog";
 import type { UserReportSummary } from "@/types/training";
 
 export default function AdminUserReportPage({
@@ -44,9 +50,11 @@ export default function AdminUserReportPage({
   params: Promise<{ userId: string }>;
 }) {
   const { userId } = use(params);
+  const { user } = useAuth();
   const [summary, setSummary] = useState<UserReportSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPdfOpen, setIsPdfOpen] = useState(false);
 
   const loadData = async () => {
     try {
@@ -107,12 +115,24 @@ export default function AdminUserReportPage({
         { label: summary?.displayName ?? "..." },
       ]}
       actions={
-        <Button asChild variant="outline">
-          <Link href="/admin/reports">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Quay lại
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {summary && (
+            <Button
+              variant="default"
+              onClick={() => setIsPdfOpen(true)}
+              className="gap-1.5 shadow-sm"
+            >
+              <FileDown className="h-4 w-4" />
+              Xuất PDF tiến độ
+            </Button>
+          )}
+          <Button asChild variant="outline">
+            <Link href="/admin/reports">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Quay lại
+            </Link>
+          </Button>
+        </div>
       }
     >
       {error && (
@@ -134,11 +154,34 @@ export default function AdminUserReportPage({
         </Alert>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Đã gán" value={summary.totalAssigned} />
-            <Stat label="Hoàn thành" value={summary.completed} color="text-green-600" />
-            <Stat label="Đang học" value={summary.inProgress} color="text-orange-600" />
-            <Stat label="Điểm TB test" value={`${summary.averageTestScore}%`} color="text-purple-600" />
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs sm:text-sm">
+              {summary.department && (
+                <span>
+                  Phòng ban: <strong className="text-foreground">{summary.department}</strong>
+                </span>
+              )}
+              {summary.position && (
+                <span>
+                  Chức danh: <strong className="text-foreground">{summary.position}</strong>
+                </span>
+              )}
+              {summary.managerName && (
+                <span>
+                  Quản lý: <strong className="text-foreground">{summary.managerName}</strong>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {summary.completed}/{summary.totalAssigned} khóa hoàn thành
+              </Badge>
+              {summary.averageTestScore > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  Điểm TB: {summary.averageTestScore}%
+                </Badge>
+              )}
+            </div>
           </div>
 
           {summary.programs.length === 0 ? (
@@ -296,6 +339,21 @@ export default function AdminUserReportPage({
             ))
           )}
         </div>
+      )}
+
+      {summary && isPdfOpen && (
+        <PdfExportDialog
+          isOpen={isPdfOpen}
+          onClose={() => setIsPdfOpen(false)}
+          title={`Báo cáo tiến độ: ${summary.displayName || summary.email}`}
+          subtitle={`Phòng ban: ${summary.department || "Chưa phân bổ"} · Đã hoàn thành: ${summary.completed}/${summary.totalAssigned} chương trình`}
+          htmlContent={generateEmployeeProgressHtml(summary, {
+            currentUserName: user?.displayName || user?.email || undefined,
+            currentUserRole: user?.role,
+            managerName: summary.managerName,
+          })}
+          fileName={`Bao-cao-tien-do-${summary.displayName ? summary.displayName.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, "_") : summary.userId}`}
+        />
       )}
     </PageContainer>
   );
