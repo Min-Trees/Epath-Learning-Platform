@@ -148,8 +148,8 @@ await sshExec([
 console.log('\n[3/5] npm ci + npm run build...');
 await sshExec([
   {
-    label: 'npm-ci',
-    cmd: `cd /var/www/epath && npm ci --no-audit --no-fund 2>&1 | tail -10`,
+    label: 'npm-install',
+    cmd: `cd /var/www/epath && npm install --no-audit --no-fund 2>&1 | tail -10`,
     timeout: 600_000,
   },
   {
