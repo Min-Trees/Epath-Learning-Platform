@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { getAuthUser, isAdmin, isManager, ok, bad } from "@/lib/api-auth";
+import { memoryCache } from "@/lib/cache";
 import type { UserReportSummary } from "@/types/training";
 
 /**
@@ -26,6 +27,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: str
         }
       } else {
         return bad("Forbidden - bạn không có quyền xem báo cáo của nhân viên này", 403);
+      }
+    }
+
+    const { searchParams } = new URL(req.url);
+    const isRefresh = searchParams.get("refresh") === "true" || searchParams.get("refresh") === "1";
+    const cacheKey = `report:user:${userId}`;
+    if (!isRefresh) {
+      const cached = memoryCache.get<UserReportSummary>(cacheKey);
+      if (cached) {
+        return ok(cached);
       }
     }
 
@@ -158,6 +169,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ userId: str
       averageTestScore: scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0,
       programs: programReports,
     };
+
+    // Lưu vào cache 60 giây
+    memoryCache.set(cacheKey, summary, 60_000);
+
     return ok(summary);
   } catch (e) {
     console.error("[api/reports/users/:id/progress][GET] error:", e);

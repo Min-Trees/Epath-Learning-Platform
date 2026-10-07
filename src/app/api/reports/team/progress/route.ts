@@ -7,6 +7,7 @@ import {
   ok,
   bad,
 } from "@/lib/api-auth";
+import { memoryCache } from "@/lib/cache";
 import type { TeamMemberProgress, TeamReportSummary } from "@/types/training";
 
 /**
@@ -64,6 +65,16 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const department = searchParams.get("department") || undefined;
+    const scope = searchParams.get("scope") || "";
+    const isRefresh = searchParams.get("refresh") === "true" || searchParams.get("refresh") === "1";
+
+    const cacheKey = `report:team:${me.uid}:${me.role}:${scope}:${department || "all"}`;
+    if (!isRefresh) {
+      const cached = memoryCache.get<TeamReportSummary>(cacheKey);
+      if (cached) {
+        return ok(cached);
+      }
+    }
 
     // Quyết định scope:
     // - manager: bắt buộc chỉ thấy NV thuộc quyền quản lý trực tiếp (managerId === me.uid)
@@ -391,6 +402,10 @@ export async function GET(req: NextRequest) {
         scoreCount > 0 ? Math.round(scoreSum / scoreCount) : 0,
       members,
     };
+
+    // Lưu vào cache 60 giây
+    memoryCache.set(cacheKey, summary, 60_000);
+
     return ok(summary);
   } catch (e) {
     console.error("[api/reports/team/progress][GET] error:", e);

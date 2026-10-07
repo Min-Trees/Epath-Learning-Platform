@@ -10,6 +10,7 @@ import {
   Minimize2,
   Eye,
   Ban,
+  RotateCcw,
 } from "lucide-react";
 import { useVideoProgress } from "@/hooks/use-video-progress";
 import { useBlockDevTools } from "@/hooks/use-block-devtools";
@@ -35,13 +36,23 @@ interface TokenResponse {
   error?: string;
 }
 
+function formatTime(seconds: number): string {
+  const s = Math.floor(seconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  if (h > 0) {
+    return `${h}:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+  return `${min}:${String(sec).padStart(2, "0")}`;
+}
+
 /**
- * Optimized video player:
- * - Token + URL fetched on mount (background)
- * - <video src=...> set immediately so browser preloads with HTTP Range
- * - User clicks Play → playback starts instantly (no token/URL wait)
- *
- * Result: time-to-first-frame reduced from ~500ms to ~50ms after click
+ * Trình phát video bảo mật chống reset & tự động phát tiếp vị trí đang xem dở:
+ * - Lưu vị trí phát vào localStorage (ngay lập tức) + đồng bộ Firestore
+ * - Tự động phát tiếp (Auto-Resume) khi tải lại trang hoặc mở lại bài học
+ * - Bảo toàn currentTime khi token auto-refresh, không bao giờ reset về 0
  */
 export function SecureVideoPlayer({
   programId,
@@ -58,6 +69,12 @@ export function SecureVideoPlayer({
   const tokenExpiryRef = useRef<number>(0);
   const fetchingRef = useRef(false);
   const hasCompletedRef = useRef(false);
+
+  // Resume State
+  const resumeStorageKey = `epath_video_resume_${userId || "anon"}_${programId}_${lessonId}`;
+  const [resumedTime, setResumedTime] = useState<number | null>(null);
+  const [showResumeBanner, setShowResumeBanner] = useState(false);
+  const hasResumedRef = useRef(false);
 
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,9 +102,26 @@ export function SecureVideoPlayer({
     };
   }, []);
 
+  // Lắng nghe beforeunload & pagehide để lưu chính xác giây cuối cùng khi thoát trang
+  useEffect(() => {
+    const saveCurrent = () => {
+      const v = videoRef.current;
+      if (v && v.currentTime > 0) {
+        try {
+          localStorage.setItem(resumeStorageKey, String(v.currentTime));
+        } catch {}
+      }
+    };
+    window.addEventListener("beforeunload", saveCurrent);
+    window.addEventListener("pagehide", saveCurrent);
+    return () => {
+      window.removeEventListener("beforeunload", saveCurrent);
+      window.removeEventListener("pagehide", saveCurrent);
+    };
+  }, [resumeStorageKey]);
+
   /**
    * Fetch stream token (cached until 90s before TTL)
-   * Returns URL or throws.
    */
   const fetchStreamUrl = useCallback(async (): Promise<string> => {
     const now = Date.now();
@@ -97,7 +131,6 @@ export function SecureVideoPlayer({
     }
 
     if (fetchingRef.current) {
-      // Wait for in-flight request
       await new Promise<void>((resolve) => {
         const check = () => {
           if (!fetchingRef.current || tokenRef.current) resolve();
@@ -131,16 +164,18 @@ export function SecureVideoPlayer({
   }, [programId, lessonId]);
 
   /**
-   * Pre-warm URL on mount (and when lesson changes).
-   * Browser starts HTTP Range streaming as soon as <video src> is set.
+   * Khởi tạo URL video
    */
   useEffect(() => {
     let cancelled = false;
 
-    // Reset state when lesson changes
+    // Reset state khi đổi bài học
     tokenRef.current = null;
     tokenExpiryRef.current = 0;
     hasCompletedRef.current = false;
+    hasResumedRef.current = false;
+    setResumedTime(null);
+    setShowResumeBanner(false);
     setStreamUrl(null);
     setHasPlayedOnce(false);
     setError(null);
@@ -152,7 +187,6 @@ export function SecureVideoPlayer({
       videoRef.current.load();
     }
 
-    // Fire-and-forget: pre-warm token + set src immediately
     (async () => {
       try {
         const url = await fetchStreamUrl();
@@ -161,7 +195,6 @@ export function SecureVideoPlayer({
         setStreamUrl(url);
         if (videoRef.current) {
           videoRef.current.src = url;
-          // preload="auto" tells browser to fetch metadata + first chunks NOW
           videoRef.current.load();
         }
         setUrlReady(true);
@@ -181,19 +214,7 @@ export function SecureVideoPlayer({
   }, [programId, lessonId]);
 
   /**
-   * Auto-refresh token trước khi hết hạn.
-   *
-   * Mỗi Range request tới /api/stream/[token]/file đều verify lại JWT.
-   * Token TTL mặc định 4 giờ, nhưng video có thể dài hơn (user để paused,
-   * xem ở tốc độ 0.5x, hoặc chương trình training >4h).
-   *
-   * Khi token còn ~5 phút, ta chủ động:
-   *   1. Ghi nhớ currentTime
-   *   2. Lấy token mới
-   *   3. Cập nhật <video>.src sang URL mới
-   *   4. Tua lại currentTime + tiếp tục phát
-   *
-   * Browser sẽ fetch Range mới từ vị trí đó với token mới, không gây lỗi.
+   * Auto-refresh token trước khi hết hạn — Không làm gián đoạn hoặc reset video
    */
   useEffect(() => {
     if (!urlReady) return;
@@ -206,7 +227,6 @@ export function SecureVideoPlayer({
       if (cancelled) return;
       const remaining = tokenExpiryRef.current - Date.now();
       if (remaining <= 0) {
-        // Đã hết hạn — thử refresh ngay
         void doRefresh();
         return;
       }
@@ -223,45 +243,38 @@ export function SecureVideoPlayer({
         scheduleRefresh();
         return;
       }
-      // Nếu chưa play hoặc đang pause, không cần refresh gấp —
-      // sẽ được lấy token mới khi user bấm play.
-      if (!hasPlayedOnce || v.paused) {
-        // Force refresh token trong cache để lần play sau dùng token mới
-        tokenRef.current = null;
-        tokenExpiryRef.current = 0;
-        scheduleRefresh();
-        return;
-      }
 
-      // Đang phát → lưu currentTime, lấy token mới, update src
-      const savedTime = v.currentTime;
+      // Ghi nhớ vị trí phát hiện tại trước khi refresh
+      const savedTime = v.currentTime || lastTimeRef.current;
       const wasPlaying = !v.paused;
+
       try {
         tokenRef.current = null;
         tokenExpiryRef.current = 0;
         const url = await fetchStreamUrl();
         if (cancelled) return;
-        v.src = url;
-        v.load();
-        // Đợi metadata load xong rồi tua lại vị trí cũ
-        const onLoaded = () => {
-          v.removeEventListener("loadedmetadata", onLoaded);
-          try {
-            v.currentTime = savedTime;
-            if (wasPlaying) {
-              void v.play().catch(() => {
-                /* autoplay bị chặn — user sẽ bấm play lại */
-              });
-            }
-          } catch {
-            /* ignore seek errors */
-          }
-        };
-        v.addEventListener("loadedmetadata", onLoaded);
-        setStreamUrl(url);
+
+        // Chỉ đổi src nếu URL token thay đổi thật sự
+        if (v.src !== url) {
+          v.src = url;
+          v.load();
+          const onLoaded = () => {
+            v.removeEventListener("loadedmetadata", onLoaded);
+            try {
+              if (savedTime > 0) {
+                v.currentTime = savedTime;
+                lastTimeRef.current = savedTime;
+              }
+              if (wasPlaying) {
+                void v.play().catch(() => {});
+              }
+            } catch {}
+          };
+          v.addEventListener("loadedmetadata", onLoaded);
+          setStreamUrl(url);
+        }
       } catch (e) {
         if (cancelled) return;
-        // Nếu refresh fail (mạng chập chờn), thử lại sau 30s
         console.warn("[secure-video] token refresh failed:", e);
       }
       scheduleRefresh();
@@ -273,13 +286,14 @@ export function SecureVideoPlayer({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [urlReady, hasPlayedOnce, fetchStreamUrl]);
+  }, [urlReady, fetchStreamUrl]);
 
   const onTimeUpdate = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
     const cur = v.currentTime;
     const dur = v.duration || 0;
+
     if (requireFullWatch) {
       if (cur > lastTimeRef.current + 2 && lastTimeRef.current > 0) {
         v.currentTime = lastTimeRef.current;
@@ -291,6 +305,14 @@ export function SecureVideoPlayer({
       }
     }
     lastTimeRef.current = cur;
+
+    // Lưu ngay vị trí xem vào localStorage để không bao giờ bị mất vị trí
+    if (cur > 1) {
+      try {
+        localStorage.setItem(resumeStorageKey, String(cur));
+      } catch {}
+    }
+
     void progress.writeProgress(cur, dur);
 
     // Kích hoạt hoàn thành khi xem hết video (>= 95% thời lượng hoặc còn dưới 1 giây)
@@ -300,30 +322,105 @@ export function SecureVideoPlayer({
         onComplete?.();
       }
     }
-  }, [progress, requireFullWatch, onComplete]);
+  }, [progress, requireFullWatch, onComplete, resumeStorageKey]);
 
   const onPlay = useCallback(() => {
     setHasPlayedOnce(true);
     setLoading(false);
   }, []);
 
+  const onPause = useCallback(() => {
+    const v = videoRef.current;
+    if (v && v.currentTime > 0) {
+      try {
+        localStorage.setItem(resumeStorageKey, String(v.currentTime));
+      } catch {}
+    }
+  }, [resumeStorageKey]);
+
   const onEnded = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    try {
+      localStorage.removeItem(resumeStorageKey);
+    } catch {}
     void progress.writeProgress(v.duration || lastTimeRef.current, v.duration || 0);
     if (!hasCompletedRef.current) {
       hasCompletedRef.current = true;
       onComplete?.();
     }
-  }, [progress, onComplete]);
+  }, [progress, onComplete, resumeStorageKey]);
 
-  // When user clicks play: video is already loaded with src, just call play()
-  // If src not ready yet (token slow), fetch now and play
+  // Khôi phục vị trí xem dở khi metadata video tải xong
+  const handleLoadedMetadata = useCallback(() => {
+    setLoading(false);
+    setUrlReady(true);
+    const v = videoRef.current;
+    if (!v) return;
+
+    if (!hasResumedRef.current) {
+      hasResumedRef.current = true;
+      let targetTime = 0;
+
+      // 1. Kiểm tra localStorage (ưu tiên cao nhất, tức thì)
+      try {
+        const stored = localStorage.getItem(resumeStorageKey);
+        if (stored) targetTime = parseFloat(stored) || 0;
+      } catch {}
+
+      // 2. Fallback: Lấy từ Firestore progress nếu localStorage chưa có
+      if (!targetTime && progress.watchedSeconds > 3) {
+        targetTime = progress.watchedSeconds;
+      }
+
+      // Chỉ tua tiếp nếu thời gian xem dở từ 3 giây trở lên và chưa hết video
+      if (targetTime > 3 && (v.duration ? targetTime < v.duration - 3 : true)) {
+        try {
+          v.currentTime = targetTime;
+          lastTimeRef.current = targetTime;
+          setResumedTime(targetTime);
+          setShowResumeBanner(true);
+          setTimeout(() => setShowResumeBanner(false), 6000);
+        } catch {}
+      }
+    }
+  }, [resumeStorageKey, progress.watchedSeconds]);
+
+  // Click Play: nếu token hết hạn thì lấy mới và giữ nguyên vị trí xem dở
   const handlePlayClick = useCallback(async () => {
     const v = videoRef.current;
     if (!v) return;
+
+    const now = Date.now();
+    if (!tokenRef.current || tokenExpiryRef.current <= now) {
+      try {
+        setLoading(true);
+        const savedTime = v.currentTime || lastTimeRef.current;
+        const url = await fetchStreamUrl();
+        setStreamUrl(url);
+        v.src = url;
+        v.load();
+        const onReady = () => {
+          v.removeEventListener("canplay", onReady);
+          if (savedTime > 0) {
+            try {
+              v.currentTime = savedTime;
+              lastTimeRef.current = savedTime;
+            } catch {}
+          }
+          void v.play();
+        };
+        v.addEventListener("canplay", onReady);
+        setUrlReady(true);
+        return;
+      } catch (e) {
+        setError(`Không tải được video: ${e instanceof Error ? e.message : "unknown"}`);
+        setLoading(false);
+        return;
+      }
+    }
+
     if (!urlReady) {
-      // Token still loading — wait for it
       try {
         setLoading(true);
         const url = await fetchStreamUrl();
@@ -332,16 +429,27 @@ export function SecureVideoPlayer({
         v.load();
         setUrlReady(true);
       } catch (e) {
-        setError(
-          `Không tải được video: ${e instanceof Error ? e.message : "unknown"}`
-        );
+        setError(`Không tải được video: ${e instanceof Error ? e.message : "unknown"}`);
         setLoading(false);
         return;
       }
     }
-    // Play — browser already has some metadata buffered
+
     void v.play();
   }, [urlReady, fetchStreamUrl]);
+
+  // Xem lại từ đầu
+  const handleRestartFromBeginning = () => {
+    const v = videoRef.current;
+    if (v) {
+      try {
+        v.currentTime = 0;
+        lastTimeRef.current = 0;
+        localStorage.setItem(resumeStorageKey, "0");
+      } catch {}
+      setShowResumeBanner(false);
+    }
+  };
 
   useEffect(() => {
     const onChange = () => {
@@ -380,30 +488,55 @@ export function SecureVideoPlayer({
           onContextMenu={(e) => e.preventDefault()}
           onTimeUpdate={onTimeUpdate}
           onPlay={onPlay}
+          onPause={onPause}
           onEnded={onEnded}
           onWaiting={() => setLoading(true)}
           onCanPlay={() => setLoading(false)}
           onError={() => {
             setError("Không tải được video. File có thể đã bị xóa hoặc không tồn tại.");
             setLoading(false);
-            setHasPlayedOnce(true); // hide play button, show error
+            setHasPlayedOnce(true);
           }}
           onDragStart={(e) => e.preventDefault()}
-          onLoadedMetadata={() => {
-            setLoading(false);
-            setUrlReady(true);
-          }}
+          onLoadedMetadata={handleLoadedMetadata}
           className="h-full w-full"
         />
 
-        {/* Loading spinner — shown while preloading or buffering */}
+        {/* Thông báo tiếp tục xem từ vị trí dở */}
+        {showResumeBanner && resumedTime && resumedTime > 0 && (
+          <div className="absolute top-3 left-3 right-3 sm:left-auto sm:right-3 z-30 flex items-center justify-between gap-3 bg-black/85 text-white text-xs px-3 py-2 rounded-md shadow-xl border border-white/15 backdrop-blur animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+              <span>Tiếp tục từ <strong>{formatTime(resumedTime)}</strong></span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleRestartFromBeginning}
+                className="text-xs text-sky-300 hover:text-sky-200 underline font-medium cursor-pointer"
+              >
+                Xem lại từ đầu
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowResumeBanner(false)}
+                className="text-white/60 hover:text-white p-0.5 ml-0.5 cursor-pointer"
+                aria-label="Đóng thông báo"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading spinner */}
         {loading && urlReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10 pointer-events-none">
             <Loader2 className="h-10 w-10 animate-spin text-white" />
           </div>
         )}
 
-        {/* Initial loading: token not yet returned */}
+        {/* Initial loading */}
         {loading && !urlReady && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 z-10">
             <Loader2 className="h-10 w-10 animate-spin text-white" />
@@ -411,7 +544,7 @@ export function SecureVideoPlayer({
           </div>
         )}
 
-        {/* Play button overlay — only shown before first play (after URL ready) */}
+        {/* Play button overlay */}
         {!hasPlayedOnce && urlReady && !error && (
           <button
             type="button"
