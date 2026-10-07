@@ -36,6 +36,7 @@ export default function PdfPage({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const pdfDocRef = useRef<unknown>(null);
+  const aspectRatioRef = useRef<number | null>(null);
   const [rendering, setRendering] = useState(false);
   const [inView, setInView] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -62,9 +63,8 @@ export default function PdfPage({
   }, [isMobile]);
 
   // Đo width khả dụng để render canvas.
-  // parent = .pdf-page wrapper. Nó đã nằm trong scroll container có p-4,
-  // nên clientWidth của parent CHÍNH LÀ content width khả dụng — không trừ
-  // thêm padding nữa (trước đây trừ 32px là SAI, làm canvas bị nhỏ hơn cần).
+  // parent = .pdf-page wrapper. Nó đã nằm trong scroll container,
+  // nên clientWidth của parent CHÍNH LÀ content width khả dụng.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -72,7 +72,9 @@ export default function PdfPage({
     if (!parent) return;
     const measure = () => {
       const w = parent.clientWidth;
-      setContainerWidth(w > 0 ? w : 0);
+      if (w > 0 && Math.abs(w - containerWidth) > 2) {
+        setContainerWidth(w);
+      }
     };
     measure();
     if (typeof ResizeObserver === "undefined") {
@@ -82,17 +84,19 @@ export default function PdfPage({
     const ro = new ResizeObserver(measure);
     ro.observe(parent);
     return () => ro.disconnect();
-  }, [inView]);
+  }, [inView, containerWidth]);
 
   // Sync canvas style với containerWidth NGAY TRƯỚC khi browser paint
-  // (chạy đồng bộ sau commit, trước useEffect). Tránh React reset lại
-  // width: "100%" của canvas JSX inline style.
+  // Bảo toàn tỉ lệ khung hình (aspect ratio) để không bị méo hoặc giật khi resize/xoay màn hình
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || containerWidth <= 0) return;
-    canvas.style.width = `${containerWidth}px`;
-    canvas.style.height = "auto";
-  }, [containerWidth, inView]);
+    const targetW = Math.floor(containerWidth * scale);
+    canvas.style.width = `${targetW}px`;
+    if (aspectRatioRef.current) {
+      canvas.style.height = `${Math.floor(targetW * aspectRatioRef.current)}px`;
+    }
+  }, [containerWidth, scale, isMobile]);
 
   const renderPage = useCallback(async () => {
     if (!canvasRef.current || !inView) return;
@@ -134,6 +138,7 @@ export default function PdfPage({
       // --- Fit-to-width cho mobile ---
       // Lấy native viewport (scale=1) để biết trang PDF rộng bao nhiêu CSS px
       const nativeViewport = page.getViewport({ scale: 1 });
+      aspectRatioRef.current = nativeViewport.height / nativeViewport.width;
       let effectiveScale: number;
       if (isMobile && containerWidth > 0) {
         // Scale để PDF vừa khít container width hiện tại
@@ -241,6 +246,8 @@ export default function PdfPage({
           userSelect: "none",
           // @ts-expect-error: vendor-prefix CSS không có trong CSSProperties
           WebkitUserDrag: "none",
+          maxWidth: scale <= 1 ? "100%" : "none",
+          margin: "0 auto",
         }}
         onContextMenu={(e) => e.preventDefault()}
       />

@@ -9,10 +9,13 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  X,
+  Maximize2,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api-client";
+import { cn } from "@/utils";
 
 interface SecurePdfViewerProps {
   programId: string;
@@ -39,7 +42,6 @@ function useMediaQuery(query: string): boolean {
     const mql = window.matchMedia(query);
     setMatches(mql.matches);
     const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
-    // Safari < 14 dùng addListener cũ
     if (mql.addEventListener) {
       mql.addEventListener("change", onChange);
       return () => mql.removeEventListener("change", onChange);
@@ -76,17 +78,27 @@ export function SecurePdfViewer({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  // Default mobile scale = 1.3× fit-to-width: text đã đủ to để đọc được
-  // (A4 gốc ~793 CSS px, iPhone ~390 px → fit-to-width co lại ~50% → text
-  // sẽ quá nhỏ. 1.3× làm text lớn hơn fit-to-width ~30%, trang rộng hơn
-  // màn hình nhưng user cuộn ngang được nhờ touch-action: pan-y pinch-zoom
-  // và nút "Vừa màn hình" reset về mặc định này).
-  const defaultScale = IS_MOBILE ? 1.3 : 1;
+
+  // Default scale: 1.0 (Fit-to-width: vừa khít 100% chiều ngang màn hình, không bị tràn lề)
+  const defaultScale = 1.0;
   const [userScale, setUserScale] = useState<number | null>(null);
   const scale = userScale ?? defaultScale;
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const hasCompletedRef = useRef(false);
+
+  // Phím Escape để thoát fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
 
   // Bước 1: Lấy token + tải PDF về Blob (không render).
   // Chỉ blob, không canvas → nhẹ, mobile chịu được.
@@ -176,9 +188,24 @@ export function SecurePdfViewer({
     }
   };
 
+  // Chạm đúp (double-click/tap) để chuyển đổi giữa vừa màn hình (1.0) và phóng to (1.5)
+  const handleToggleZoom = useCallback(() => {
+    setUserScale((curr) => {
+      const s = curr ?? defaultScale;
+      return s > 1.1 ? 1.0 : 1.5;
+    });
+  }, [defaultScale]);
+
   return (
-    <div className="space-y-2 overflow-hidden">
-      <div className="relative h-[75vh] w-full overflow-hidden rounded-md border bg-muted/20">
+    <div className={cn("space-y-2", isFullscreen && "fixed inset-0 z-50 bg-background")}>
+      <div
+        className={cn(
+          "relative w-full overflow-hidden transition-all",
+          isFullscreen
+            ? "fixed inset-0 z-50 h-[100dvh] w-full rounded-none border-0 bg-background"
+            : "h-[75vh] sm:h-[80vh] rounded-md border bg-muted/20"
+        )}
+      >
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
             <div className="flex flex-col items-center gap-2">
@@ -205,16 +232,23 @@ export function SecurePdfViewer({
         {pdfBlob && (
           <div
             ref={containerRef}
-            className="h-full w-full overflow-auto bg-muted/30 p-4"
+            className="h-full w-full overflow-auto bg-muted/30 p-1 sm:p-4 pb-24 sm:pb-20"
             style={{
-              // Cho phép pinch-zoom native trên mobile (scale = 1 → user vẫn
-              // dùng tay zoom được mà không bị trình duyệt chặn)
-              touchAction: "pan-y pinch-zoom",
+              // Khi scale <= 1: chỉ cho phép cuộn dọc (pan-y) và pinch-zoom (2 ngón),
+              // chặn hoàn toàn lắc ngang (pan-x) để đọc văn bản cực êm trên mobile
+              touchAction: scale > 1 ? "pan-x pan-y pinch-zoom" : "pan-y pinch-zoom",
               overscrollBehavior: "contain",
             }}
           >
             {numPages > 0 ? (
-              <div style={{ minWidth: 0, maxWidth: "100%" }}>
+              <div
+                style={{
+                  minWidth: 0,
+                  maxWidth: scale <= 1 ? "100%" : "none",
+                  width: scale <= 1 ? "100%" : "fit-content",
+                  margin: "0 auto",
+                }}
+              >
                 {Array.from({ length: numPages }, (_, i) => i + 1).map(
                   (pageNum) => (
                     <div
@@ -226,12 +260,16 @@ export function SecurePdfViewer({
                       className="pdf-page"
                       data-page={pageNum}
                       style={{
-                        margin: "0 auto 16px",
+                        margin: "0 auto 12px",
                         background: "white",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                        maxWidth: "100%",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                        maxWidth: scale <= 1 ? "100%" : "none",
+                        width: scale <= 1 ? "100%" : "fit-content",
                         boxSizing: "border-box",
+                        borderRadius: "4px",
+                        overflow: "hidden",
                       }}
+                      onDoubleClick={handleToggleZoom}
                     >
                       <PdfPage
                         blob={pdfBlob}
@@ -254,12 +292,16 @@ export function SecurePdfViewer({
                 className="pdf-page"
                 data-page={1}
                 style={{
-                  margin: "0 auto 16px",
+                  margin: "0 auto 12px",
                   background: "white",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                  maxWidth: "100%",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                  maxWidth: scale <= 1 ? "100%" : "none",
+                  width: scale <= 1 ? "100%" : "fit-content",
                   boxSizing: "border-box",
+                  borderRadius: "4px",
+                  overflow: "hidden",
                 }}
+                onDoubleClick={handleToggleZoom}
               >
                 <PdfPage
                   blob={pdfBlob}
@@ -273,17 +315,18 @@ export function SecurePdfViewer({
           </div>
         )}
 
-        {/* Toolbar nổi đáy viewer — luôn hiển thị, dùng được khi đang đọc PDF */}
+        {/* Toolbar nổi đáy viewer — luôn hiển thị, thao tác cực tiện trên Mobile */}
         {pdfBlob && !error && numPages > 0 && (
           <div
             className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-2 sm:p-3"
           >
             <div
-              className="pointer-events-auto flex max-w-full flex-wrap items-center justify-between gap-1 rounded-lg border bg-background/85 px-2 py-1.5 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/65 sm:gap-2 sm:px-3 sm:py-2"
+              className="pointer-events-auto flex max-w-full flex-wrap items-center justify-between gap-1 rounded-lg border bg-background/90 px-2 py-1.5 shadow-xl backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:gap-2 sm:px-3 sm:py-2"
             >
+              {/* Điều hướng trang */}
               <div className="flex items-center gap-0.5 sm:gap-1">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
                   disabled={currentPage <= 1}
@@ -292,11 +335,11 @@ export function SecurePdfViewer({
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="px-1 text-xs tabular-nums sm:px-2 sm:text-sm">
+                <span className="px-1 text-xs tabular-nums sm:px-2 sm:text-sm font-semibold select-none">
                   {currentPage} / {numPages}
                 </span>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
                   disabled={currentPage >= numPages}
@@ -306,46 +349,65 @@ export function SecurePdfViewer({
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
+
+              {/* Điều khiển Thu phóng & Vừa màn hình */}
               <div className="flex items-center gap-0.5 sm:gap-1">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
                   onClick={() =>
                     setUserScale((s) =>
-                      Math.max(0.5, +(((s ?? defaultScale) - 0.2)).toFixed(2))
+                      Math.max(0.6, +(((s ?? defaultScale) - 0.2)).toFixed(2))
                     )
                   }
                   aria-label="Thu nhỏ"
                 >
                   <ZoomOut className="h-4 w-4" />
                 </Button>
-                <span className="px-1 text-xs tabular-nums sm:px-2 sm:text-sm">
+                <span className="min-w-[42px] text-center text-[11px] tabular-nums font-mono sm:text-xs text-muted-foreground select-none">
                   {Math.round(scale * 100)}%
                 </span>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
                   onClick={() =>
                     setUserScale((s) =>
-                      Math.min(3, +(((s ?? defaultScale) + 0.2)).toFixed(2))
+                      Math.min(2.5, +(((s ?? defaultScale) + 0.2)).toFixed(2))
                     )
                   }
                   aria-label="Phóng to"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
-                {/* "Vừa màn hình" — reset về defaultScale (1.3× mobile, 1× desktop) */}
+
+                {/* Nút "Vừa màn hình" — đưa về đúng tỷ lệ vừa khít chiều ngang 100% */}
                 <Button
-                  variant="outline"
+                  variant={scale === 1.0 ? "secondary" : "ghost"}
                   size="icon"
                   className="h-8 w-8 sm:h-9 sm:w-9"
-                  onClick={() => setUserScale(null)}
+                  onClick={() => setUserScale(1.0)}
                   aria-label="Vừa màn hình"
-                  title={`Vừa màn hình (${Math.round(defaultScale * 100)}%)`}
+                  title="Vừa màn hình (100%)"
                 >
-                  <X className="h-4 w-4" />
+                  <Maximize2 className="h-4 w-4" />
+                </Button>
+
+                {/* Nút "Toàn màn hình" — giải phóng 100% không gian hiển thị trên mobile */}
+                <Button
+                  variant={isFullscreen ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8 sm:h-9 sm:w-9"
+                  onClick={() => setIsFullscreen((prev) => !prev)}
+                  aria-label={isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
+                  title={isFullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
+                >
+                  {isFullscreen ? (
+                    <Minimize className="h-4 w-4" />
+                  ) : (
+                    <Maximize className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </div>
