@@ -665,12 +665,27 @@ export default function AdminProgramDetailPage({
   // File upload
   const handleFileSelect = async (file: File) => {
     if (!lessonForm) return;
-    const matches =
-      lessonForm.contentType === "video"
-        ? file.type.startsWith("video/")
-        : file.type === "application/pdf";
-    if (!matches) {
-      setError(`File phải là ${lessonForm.contentType === "video" ? "video" : "PDF"}`);
+
+    // Detect mime type accurately (browser đôi khi để file.type = "" với một số file MP4/MOV/MKV/WebM)
+    let effectiveMime = file.type;
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!effectiveMime || effectiveMime === "application/octet-stream") {
+      if (["mp4", "m4v"].includes(ext)) effectiveMime = "video/mp4";
+      else if (ext === "webm") effectiveMime = "video/webm";
+      else if (ext === "mov") effectiveMime = "video/quicktime";
+      else if (ext === "mkv") effectiveMime = "video/x-matroska";
+      else if (ext === "pdf") effectiveMime = "application/pdf";
+    }
+
+    const isVideo =
+      lessonForm.contentType === "video" &&
+      (effectiveMime.startsWith("video/") || ["mp4", "mov", "webm", "mkv", "m4v", "avi"].includes(ext));
+    const isPdf =
+      lessonForm.contentType === "pdf" &&
+      (effectiveMime === "application/pdf" || ext === "pdf");
+
+    if (!isVideo && !isPdf) {
+      setError(`File phải là ${lessonForm.contentType === "video" ? "video (MP4, MOV, WebM...)" : "PDF"}`);
       return;
     }
 
@@ -682,7 +697,7 @@ export default function AdminProgramDetailPage({
       const presignRes = await import("@/services/training").then((m) =>
         m.uploadService.presign({
           fileName: file.name,
-          mimeType: file.type,
+          mimeType: effectiveMime,
           programId,
           lessonId: lessonIdForKey,
           size: file.size,
@@ -715,7 +730,7 @@ export default function AdminProgramDetailPage({
           proxyUrl: proxyUrl ?? null,
         },
         file,
-        contentType: file.type,
+        contentType: effectiveMime,
         authToken,
         onProgress: (pct) => {
           setLessonForm((f) => (f ? { ...f, uploadProgress: pct } : f));
@@ -735,7 +750,7 @@ export default function AdminProgramDetailPage({
               fileMeta: {
                 fileName: file.name,
                 size: file.size,
-                mimeType: file.type,
+                mimeType: effectiveMime,
               },
               isUploading: false,
               uploadProgress: 100,

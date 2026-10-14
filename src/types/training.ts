@@ -282,6 +282,9 @@ export interface PresignUploadResponse {
   fileKey: string;
   expiresIn: number; // giây
   publicUrl?: string; // optional, nếu bucket public
+  proxyUrl?: string | null;
+  localFallback?: boolean;
+  maxSizeBytes?: number;
 }
 
 export interface PresignDownloadResponse {

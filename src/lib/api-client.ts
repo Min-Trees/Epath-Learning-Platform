@@ -8,7 +8,7 @@ import { auth } from "@/lib/firebase";
 let cachedToken: { token: string; expires: number } | null = null;
 const TOKEN_TTL = 5 * 60 * 1000; // 5 phút
 
-async function getIdToken(): Promise<string | null> {
+export async function getIdToken(): Promise<string | null> {
   // Kiểm tra cache trước
   if (cachedToken && cachedToken.expires > Date.now()) {
     return cachedToken.token;

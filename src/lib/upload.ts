@@ -69,11 +69,29 @@ export async function performUpload(
       break;
     case "proxy":
       url = target.proxyUrl!;
-      if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+      let pToken = authToken;
+      if (!pToken) {
+        try {
+          const { getIdToken } = await import("@/lib/api-client");
+          pToken = (await getIdToken()) ?? undefined;
+        } catch {
+          // ignore
+        }
+      }
+      if (pToken) headers["Authorization"] = `Bearer ${pToken}`;
       break;
     case "local-fallback":
       url = target.uploadUrl;
-      if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+      let lToken = authToken;
+      if (!lToken) {
+        try {
+          const { getIdToken } = await import("@/lib/api-client");
+          lToken = (await getIdToken()) ?? undefined;
+        } catch {
+          // ignore
+        }
+      }
+      if (lToken) headers["Authorization"] = `Bearer ${lToken}`;
       break;
   }
 

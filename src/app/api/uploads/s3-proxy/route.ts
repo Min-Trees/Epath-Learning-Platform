@@ -44,7 +44,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const me = await getAuthUser(req);
-  if (!me || me.role !== "admin") {
+  if (!me || (me.role !== "admin" && me.role !== "manager")) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
