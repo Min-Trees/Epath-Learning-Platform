@@ -46,7 +46,9 @@ export async function performUpload(
 ): Promise<PerformUploadResult> {
   const { target, file, contentType, forceMode, fallbackToProxy = true, onProgress, authToken } = opts;
 
-  // Quyết định mode
+  // Quyết định mode:
+  // Ưu tiên "proxy" khi có proxyUrl (server-side stream lên Viettel S3) để bypass 100% CORS browser.
+  // Nếu proxy gặp vấn đề thì tự động thử direct-s3 (hoặc ngược lại).
   let mode: "direct-s3" | "proxy" | "local-fallback";
   if (forceMode) {
     mode = forceMode;
@@ -104,34 +106,30 @@ export async function performUpload(
       timeoutMs: 60 * 60 * 1000, // 1 giờ cho file lớn
     });
 
-    // Nếu direct-s3 thất bại (CORS/network/timeout) → fallback sang proxy.
-    if (
-      !result.ok &&
-      mode === "direct-s3" &&
-      fallbackToProxy &&
-      target.proxyUrl
-    ) {
-      console.warn(
-        "[upload] direct-s3 thất bại, fallback sang proxy. Status:",
-        result.status
-      );
-      return performUpload({
-        ...opts,
-        forceMode: "proxy",
-        fallbackToProxy: false, // không lặp vô hạn
-      });
+    // Nếu upload thất bại → tự động thử chế độ còn lại (fallback hai chiều)
+    if (!result.ok && fallbackToProxy) {
+      if (mode === "direct-s3" && target.proxyUrl) {
+        console.warn("[upload] direct-s3 thất bại, fallback sang proxy. Status:", result.status);
+        return performUpload({ ...opts, forceMode: "proxy", fallbackToProxy: false });
+      }
+      if (mode === "proxy" && target.uploadUrl) {
+        console.warn("[upload] proxy thất bại, fallback sang direct-s3. Status:", result.status);
+        return performUpload({ ...opts, forceMode: "direct-s3", fallbackToProxy: false });
+      }
     }
 
     return { ...result, mode };
   } catch (e) {
-    // Lỗi mạng → fallback sang proxy
-    if (mode === "direct-s3" && fallbackToProxy && target.proxyUrl) {
-      console.warn("[upload] direct-s3 lỗi mạng, fallback sang proxy:", e);
-      return performUpload({
-        ...opts,
-        forceMode: "proxy",
-        fallbackToProxy: false,
-      });
+    // Lỗi mạng → tự động thử chế độ còn lại
+    if (fallbackToProxy) {
+      if (mode === "direct-s3" && target.proxyUrl) {
+        console.warn("[upload] direct-s3 lỗi mạng, fallback sang proxy:", e);
+        return performUpload({ ...opts, forceMode: "proxy", fallbackToProxy: false });
+      }
+      if (mode === "proxy" && target.uploadUrl) {
+        console.warn("[upload] proxy lỗi mạng, fallback sang direct-s3:", e);
+        return performUpload({ ...opts, forceMode: "direct-s3", fallbackToProxy: false });
+      }
     }
     throw e;
   }
